@@ -7,3 +7,6 @@ edition = "2021"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util"] }
 toml = "0.8"
+
+[lib]
+name = "gluon"
