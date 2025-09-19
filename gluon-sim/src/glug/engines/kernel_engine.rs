@@ -23,7 +23,9 @@ pub struct KernelEngine {
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
     fn instantiate(config: KernelEngineConfig) -> Self {
-        KernelEngine { state: KernelEngineState::S0 }
+        KernelEngine {
+            state: KernelEngineState::S0,
+        }
     }
 }
 impl Engine for KernelEngine {
@@ -32,10 +34,16 @@ impl Engine for KernelEngine {
     fn busy(&self) -> bool {
         !matches!(self.state, KernelEngineState::S0)
     }
+
+    fn cmd_type(&self) -> crate::common::base::CmdType {
+        crate::common::base::CmdType::KERNEL
+    }
 }
 
 impl Clocked for KernelEngine {
     fn tick(&mut self) {}
 
-    fn reset(&mut self) {}
+    fn busy(&mut self) -> bool {
+        false
+    }
 }

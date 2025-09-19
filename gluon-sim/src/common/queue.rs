@@ -1,14 +1,20 @@
 use std::collections::VecDeque;
 
-#[derive(Debug, Default)]
-pub struct Queue<T> where T: Default {
+#[derive(Debug, Default, Clone)]
+pub struct Queue<T>
+where
+    T: Default,
+{
     data: VecDeque<T>,
     cap: usize,
 }
 
-impl <T: Default> Queue<T> {
+impl<T: Default> Queue<T> {
     pub fn new(cap: usize) -> Self {
-        Queue { data: VecDeque::with_capacity(cap), cap: cap }
+        Queue {
+            data: VecDeque::with_capacity(cap),
+            cap: cap,
+        }
     }
 
     pub fn full(&self) -> bool {

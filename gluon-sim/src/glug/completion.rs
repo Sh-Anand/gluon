@@ -1,4 +1,7 @@
-use crate::common::{base::{Configurable, Event}, queue::Queue};
+use crate::common::{
+    base::{Configurable, Event},
+    queue::Queue,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct CompletionConfig {
@@ -7,15 +10,19 @@ pub struct CompletionConfig {
 
 impl Default for CompletionConfig {
     fn default() -> Self {
-        CompletionConfig { event_queue_size: 4 }
+        CompletionConfig {
+            event_queue_size: 4,
+        }
     }
 }
 pub struct Completion {
-    eq: Queue<Event>
+    pub eq: Queue<Event>,
 }
 
 impl Configurable<CompletionConfig> for Completion {
     fn instantiate(config: CompletionConfig) -> Self {
-        Completion { eq: Queue::new(config.event_queue_size) }
+        Completion {
+            eq: Queue::new(config.event_queue_size),
+        }
     }
 }

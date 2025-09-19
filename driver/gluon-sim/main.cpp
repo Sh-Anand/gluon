@@ -2,7 +2,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <array>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <optional>
@@ -66,11 +68,32 @@ int main() {
         return 1;
     }
 
-    std::string request = "dummy-command";
-    std::cout << "Sending request: " << request << "\n";
-    ssize_t sent = ::send(sock, request.data(), request.size(), 0);
-    if (sent == -1) {
-        std::cerr << "Failed to send data: " << std::strerror(errno) << '\n';
+    std::array<std::uint8_t, 16> kernel_launch_cmd{};
+    kernel_launch_cmd[0] = 0;   // CmdType::KERNEL
+    kernel_launch_cmd[1] = 1;   // command id placeholder
+
+    const auto send_all = [](int fd, const std::uint8_t* data, std::size_t size) -> bool {
+        std::size_t total_sent = 0;
+        while (total_sent < size) {
+            ssize_t sent = ::send(fd, data + total_sent, size - total_sent, 0);
+            if (sent == -1) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+            if (sent == 0) {
+                return false;
+            }
+            total_sent += static_cast<std::size_t>(sent);
+        }
+        return true;
+    };
+
+    std::cout << "Submitting kernel launch command (id="
+              << static_cast<int>(kernel_launch_cmd[1]) << ")\n";
+    if (!send_all(sock, kernel_launch_cmd.data(), kernel_launch_cmd.size())) {
+        std::cerr << "Failed to send command: " << std::strerror(errno) << '\n';
         ::close(sock);
         return 1;
     }

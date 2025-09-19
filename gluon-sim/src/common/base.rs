@@ -1,5 +1,7 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum CmdType {
+    #[default]
+    NOP,
     KERNEL,
     MEM,
     CSR,
@@ -9,7 +11,7 @@ pub enum CmdType {
 
 pub trait Clocked {
     fn tick(&mut self);
-    fn reset(&mut self);
+    fn busy(&mut self) -> bool;
 }
 
 pub trait Configurable<T: Default> {
@@ -24,6 +26,10 @@ pub struct Command {
 }
 
 impl Command {
+    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+        Command { bytes }
+    }
+
     pub fn cmd_type(&self) -> CmdType {
         match self.bytes[0] {
             0 => CmdType::KERNEL,
@@ -41,14 +47,20 @@ impl Command {
     pub fn is_fence(&self) -> bool {
         match self.cmd_type() {
             CmdType::FENCE => true,
-            _ => false
+            _ => false,
         }
+    }
+
+    pub fn get_engine_cmd(&self) -> EngineCommand {
+        let mut bytes = [0u8; 15];
+        bytes.copy_from_slice(&self.bytes[1..]);
+        EngineCommand { bytes }
     }
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct EngineCommand {
-    bytes: [u8; 15]
+    bytes: [u8; 15],
 }
 
 impl EngineCommand {
@@ -60,5 +72,6 @@ impl EngineCommand {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Event {
     bytes: [u8; 16],
+
     done: bool,
 }

@@ -1,4 +1,7 @@
-use crate::common::{base::{Configurable, EngineCommand}, queue::Queue};
+use crate::common::{
+    base::{CmdType, Command, Configurable, EngineCommand},
+    queue::Queue,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct DecodeDispatchConfig {
@@ -17,17 +20,52 @@ impl Default for DecodeDispatchConfig {
     }
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct EngineQueue {
+    pub q: Queue<EngineCommand>,
+    pub engine_type: CmdType,
+}
+
 pub struct DecodeDispatch {
-    kq: Queue<EngineCommand>,
-    mq: Queue<EngineCommand>,
-    csq: Queue<EngineCommand>,
+    pub qs: [EngineQueue; 3],
 }
 
 impl Configurable<DecodeDispatchConfig> for DecodeDispatch {
     fn instantiate(config: DecodeDispatchConfig) -> Self {
-        DecodeDispatch { kq: Queue::new(config.kq_size),
-                         mq: Queue::new(config.mq_size),
-                         csq: Queue::new(config.csq_size) 
-                    }
+        DecodeDispatch {
+            qs: [
+                EngineQueue {
+                    q: Queue::new(config.kq_size),
+                    engine_type: CmdType::KERNEL,
+                },
+                EngineQueue {
+                    q: Queue::new(config.mq_size),
+                    engine_type: CmdType::MEM,
+                },
+                EngineQueue {
+                    q: Queue::new(config.csq_size),
+                    engine_type: CmdType::CSR,
+                },
+            ],
+        }
+    }
+}
+
+impl DecodeDispatch {
+    pub fn can_enqueue(&self, cmd_type: CmdType) -> bool {
+        self.qs
+            .iter()
+            .filter(|eq| eq.engine_type == cmd_type)
+            .any(|eq| !eq.q.full())
+    }
+
+    pub fn enqueue(&mut self, cmd: Command) {
+        if let Some(engine_queue) = self
+            .qs
+            .iter_mut()
+            .find(|eq| eq.engine_type == cmd.cmd_type() && !eq.q.full())
+        {
+            engine_queue.q.push(cmd.get_engine_cmd());
+        }
     }
 }
