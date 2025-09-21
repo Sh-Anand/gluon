@@ -1,7 +1,9 @@
 use crate::common::base::{Command, Configurable};
 use crate::common::queue::Queue;
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct FrontendConfig {
     command_queue_size: usize,
 }
@@ -20,7 +22,7 @@ pub struct Frontend {
 }
 
 impl Configurable<FrontendConfig> for Frontend {
-    fn instantiate(config: FrontendConfig) -> Self {
+    fn new(config: FrontendConfig) -> Self {
         Frontend {
             command_queue: Queue::new(config.command_queue_size),
         }

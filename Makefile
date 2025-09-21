@@ -13,8 +13,12 @@ run: server driver
 	@set -euo pipefail; \
 	$(CARGO) run --manifest-path $(RUST_MANIFEST) & \
 	SERVER_PID=$$!; \
-	trap 'kill $$SERVER_PID 2>/dev/null' EXIT; \
+	trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	sleep 1; \
+	if ! kill -0 $$SERVER_PID 2>/dev/null; then \
+		wait $$SERVER_PID || true; \
+		exit 0; \
+	fi; \
 	$(DRIVER_BIN)
 
 server:

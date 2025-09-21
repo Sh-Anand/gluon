@@ -1,49 +1,84 @@
-use crate::common::base::{Clocked, CmdType, Command, Configurable};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, SimErr};
 use crate::glug::completion::{Completion, CompletionConfig};
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
+use serde::Deserialize;
+use std::collections::HashMap;
 
-#[derive(Debug, Default, Clone, Copy)]
+pub struct Memory {
+    data: HashMap<u32, u8>,
+}
+
+impl Memory {
+    pub fn read(&self, addr: &u32) -> u8 {
+        *self.data.get(addr).expect("Invalid DRAM Addr")
+    }
+
+    pub fn write(&mut self, addr: u32, data: u8) {
+        self.data.insert(addr, data);
+    }
+}
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct GLUGConfig {
-    frontend_config: FrontendConfig,
-    decode_dispatch_config: DecodeDispatchConfig,
-    engine_config: EngineConfig,
-    completion_config: CompletionConfig,
+    pub frontend: FrontendConfig,
+    #[serde(rename = "decode_dispatch")]
+    pub decode_dispatch: DecodeDispatchConfig,
+    pub engine: EngineConfig,
+    pub completion: CompletionConfig,
 }
 
 pub struct GLUG {
+    cmd_valid: bool,
     cmd: Command,
+
     frontend: Frontend,
     decode_dispatch: DecodeDispatch,
     engines: Vec<Box<dyn Engine>>,
     completion: Completion,
+
+    dram: Memory,
 }
 
 impl GLUG {
     pub fn submit_command(&mut self, command: Command) {
+        self.cmd_valid = true;
         self.cmd = command;
     }
 }
 
 impl Configurable<GLUGConfig> for GLUG {
-    fn instantiate(config: GLUGConfig) -> Self {
+    fn new(config: GLUGConfig) -> Self {
         GLUG {
             cmd: Command::default(),
-            frontend: Frontend::instantiate(config.frontend_config),
-            decode_dispatch: DecodeDispatch::instantiate(config.decode_dispatch_config),
-            engines: config.engine_config.generate_engines(),
-            completion: Completion::instantiate(config.completion_config),
+            cmd_valid: false,
+            frontend: Frontend::new(config.frontend),
+            decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
+            engines: config.engine.generate_engines(),
+            completion: Completion::new(config.completion),
+            dram: Memory {
+                data: HashMap::new(),
+            },
         }
     }
 }
 
 impl Clocked for GLUG {
-    fn tick(&mut self) {
+    fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Tick completion
 
+        // Service DMA requests
+        if let Some(dma_req) = self
+            .engines
+            .iter_mut()
+            .find_map(|engine| engine.get_dma_req())
+        {}
+
         // Tick engines
-        self.engines.iter_mut().for_each(|engine| engine.tick());
+        self.engines
+            .iter_mut()
+            .try_for_each(|engine| engine.tick())?;
 
         // Tick decode
         self.decode_dispatch
@@ -71,7 +106,9 @@ impl Clocked for GLUG {
             });
 
         // Tick frontend
-        if self.frontend.command_queue.push(self.cmd) {
+        if self.cmd_valid && self.frontend.command_queue.push(self.cmd) {
+            println!("Pushed {:?} to command queue", self.cmd);
+            self.cmd_valid = false;
             self.cmd = Command::default();
         }
 
@@ -94,6 +131,8 @@ impl Clocked for GLUG {
             self.decode_dispatch.enqueue(frontend_out_cmd);
             // TODO create completion
         }
+
+        Ok(())
     }
 
     fn busy(&mut self) -> bool {

@@ -9,6 +9,7 @@ log = "0.4"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync"] }
 toml = "0.8"
+libc = "0.2"
 
 [lib]
 name = "gluon"

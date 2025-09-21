@@ -1,2 +1,33 @@
 [server]
 socket_path = "./gluon-sim.sock"
+
+[sim]
+# Set to >0 to enforce a hard timeout, or 0 to disable.
+timeout_cycles = 0
+
+[glug]
+
+[frontend]
+command_queue_size = 4
+
+[decode_dispatch]
+kq_size = 4
+mq_size = 4
+csq_size = 4
+
+[completion]
+event_queue_size = 4
+
+[engine]
+num_kernel_engines = 1
+num_mem_engines = 1
+num_cs_engines = 1
+
+[kernel_engine]
+# kernel engine specific configuration placeholders
+
+[mem_engine]
+# memory engine specific configuration placeholders
+
+[cs_engine]
+# control/status engine specific configuration placeholders

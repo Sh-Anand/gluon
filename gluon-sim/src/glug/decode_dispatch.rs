@@ -2,8 +2,10 @@ use crate::common::{
     base::{CmdType, Command, Configurable, EngineCommand},
     queue::Queue,
 };
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
 pub struct DecodeDispatchConfig {
     pub kq_size: usize,
     pub mq_size: usize,
@@ -31,7 +33,7 @@ pub struct DecodeDispatch {
 }
 
 impl Configurable<DecodeDispatchConfig> for DecodeDispatch {
-    fn instantiate(config: DecodeDispatchConfig) -> Self {
+    fn new(config: DecodeDispatchConfig) -> Self {
         DecodeDispatch {
             qs: [
                 EngineQueue {
