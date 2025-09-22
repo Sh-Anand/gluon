@@ -11,7 +11,7 @@ pub struct CSEngineConfig {}
 pub struct CSEngine {}
 
 impl Engine for CSEngine {
-    fn init(&mut self, _cmd: crate::common::base::EngineCommand) {}
+    fn init(&mut self, cmd: crate::glug::engine::EngineCommand) {}
 
     fn busy(&self) -> bool {
         false
@@ -21,7 +21,11 @@ impl Engine for CSEngine {
         CmdType::MEM
     }
 
-    fn get_dma_req(&self) -> Option<crate::common::base::DMAReq> {
+    fn get_dma_req(&self) -> Option<&crate::common::base::DMAReq> {
+        None
+    }
+
+    fn get_mem_req(&self) -> Option<&crate::common::base::MemReq> {
         None
     }
 

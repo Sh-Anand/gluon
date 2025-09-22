@@ -1,4 +1,4 @@
-use crate::common::base::{Clocked, CmdType, Command, Configurable, SimErr};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMADir, SimErr};
 use crate::glug::completion::{Completion, CompletionConfig};
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
@@ -17,6 +17,21 @@ impl Memory {
 
     pub fn write(&mut self, addr: u32, data: u8) {
         self.data.insert(addr, data);
+    }
+
+    pub fn read_bytes(&self, addr: u32, bytes: u32) -> Vec<u8> {
+        (0..bytes)
+            .map(|offset| {
+                let byte_addr = addr + offset as u32;
+                *self.data.get(&byte_addr).expect("Invalid DRAM Addr")
+            })
+            .collect()
+    }
+
+    pub fn write_bytes(&mut self, addr: u32, data: Vec<u8>) {
+        data.iter().enumerate().for_each(|(idx, byte)| {
+            self.data.insert(addr + idx as u32, *byte);
+        });
     }
 }
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -68,12 +83,39 @@ impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Tick completion
 
-        // Service DMA requests
-        if let Some(dma_req) = self
+        // Service Mem requests
+        if let Some(engine) = self
             .engines
             .iter_mut()
-            .find_map(|engine| engine.get_dma_req())
+            .find(|engine| engine.get_mem_req().is_some())
         {}
+
+        // Service DMA requests
+        if let Some(engine) = self
+            .engines
+            .iter_mut()
+            .find(|engine| engine.get_dma_req().is_some())
+        {
+            let dma_req = engine.get_dma_req().expect("DMA: unreachable");
+            match dma_req.dir {
+                DMADir::H2D => {
+                    let data: Vec<u8> = (0..dma_req.sz)
+                        .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
+                        .collect();
+
+                    self.dram.write_bytes(dma_req.target_addr, data);
+                }
+
+                DMADir::D2H => {
+                    let data = self.dram.read_bytes(dma_req.src_addr, dma_req.sz);
+                    data.iter().enumerate().for_each(|(idx, byte)| unsafe {
+                        *((dma_req.target_addr + idx as u32) as *mut u8) = *byte;
+                    });
+                }
+            };
+
+            engine.done_dma_req();
+        }
 
         // Tick engines
         self.engines

@@ -1,6 +1,9 @@
-use crate::common::{
-    base::{CmdType, Command, Configurable, EngineCommand},
-    queue::Queue,
+use crate::{
+    common::{
+        base::{CmdType, Command, Configurable},
+        queue::Queue,
+    },
+    glug::engine::EngineCommand,
 };
 use serde::Deserialize;
 
@@ -67,7 +70,7 @@ impl DecodeDispatch {
             .iter_mut()
             .find(|eq| eq.engine_type == cmd.cmd_type() && !eq.q.full())
         {
-            engine_queue.q.push(cmd.get_engine_cmd());
+            engine_queue.q.push(EngineCommand::from_command(cmd));
         }
     }
 }

@@ -1,6 +1,6 @@
 use std::iter::repeat_with;
 
-use crate::common::base::{Clocked, CmdType, Configurable, DMAReq, EngineCommand};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq};
 use crate::glug::engines::{
     cs_engine::{CSEngine, CSEngineConfig},
     kernel_engine::{KernelEngine, KernelEngineConfig},
@@ -12,7 +12,8 @@ pub trait Engine: Clocked + Send {
     fn init(&mut self, cmd: EngineCommand);
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
-    fn get_dma_req(&self) -> Option<DMAReq>;
+    fn get_dma_req(&self) -> Option<&DMAReq>;
+    fn get_mem_req(&self) -> Option<&MemReq>;
     fn done_dma_req(&mut self);
 }
 
@@ -57,5 +58,30 @@ impl EngineConfig {
                     .take(self.num_cs_engines),
             )
             .collect()
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EngineCommand {
+    id: u8,
+    bytes: [u8; 14],
+}
+
+impl EngineCommand {
+    pub fn from_command(cmd: Command) -> Self {
+        let mut bytes = [0u8; 14];
+        bytes.copy_from_slice(cmd.slice(2, 16));
+        EngineCommand {
+            id: cmd.id(),
+            bytes,
+        }
+    }
+
+    pub fn id(&self) -> u8 {
+        self.id
+    }
+
+    pub fn payload(&self) -> &[u8; 14] {
+        &self.bytes
     }
 }
