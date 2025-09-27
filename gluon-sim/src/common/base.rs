@@ -92,6 +92,14 @@ pub struct MemResp {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
+pub struct ThreadBlock {
+    pub id: u32,
+    pub pc: u32,
+    pub dim: (u16, u16, u16),
+    pub regs: u32,
+    pub shmem: u32,
+}
+#[derive(Debug, Default, Clone, Copy)]
 pub struct Event {
     bytes: [u8; 16],
     done: bool,

@@ -1,0 +1,6 @@
+[workspace]
+members = ["gluon-sim"]
+resolver = "2"
+
+[workspace.dependencies]
+# Shared dependencies can go here if needed

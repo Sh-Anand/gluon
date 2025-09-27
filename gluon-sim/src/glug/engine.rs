@@ -1,11 +1,12 @@
 use std::iter::repeat_with;
 
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq, MemResp};
 use crate::glug::engines::{
     cs_engine::{CSEngine, CSEngineConfig},
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
+use crate::glul::glul::GLULInterface;
 use serde::Deserialize;
 
 pub trait Engine: Clocked + Send {
@@ -13,11 +14,13 @@ pub trait Engine: Clocked + Send {
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
     fn get_dma_req(&self) -> Option<&DMAReq>;
-    fn get_mem_req(&self) -> Option<&MemReq>;
     fn done_dma_req(&mut self);
+    fn get_mem_req(&self) -> Option<&MemReq>;
+    fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
+    fn get_glul_req(&self) -> Option<&GLULInterface>;
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct EngineConfig {
     pub num_kernel_engines: usize,
@@ -47,17 +50,19 @@ impl EngineConfig {
     }
 
     pub fn generate_engines(&self) -> Vec<Box<dyn Engine>> {
-        repeat_with(|| Box::new(KernelEngine::new(self.kernel_engine_config)) as Box<dyn Engine>)
-            .take(self.num_kernel_engines)
-            .chain(
-                repeat_with(|| Box::new(MemEngine::new(self.mem_engine_config)) as Box<dyn Engine>)
-                    .take(self.num_mem_engines),
-            )
-            .chain(
-                repeat_with(|| Box::new(CSEngine::new(self.cs_engine_config)) as Box<dyn Engine>)
-                    .take(self.num_cs_engines),
-            )
-            .collect()
+        repeat_with(|| {
+            Box::new(KernelEngine::new(self.kernel_engine_config.clone())) as Box<dyn Engine>
+        })
+        .take(self.num_kernel_engines)
+        .chain(
+            repeat_with(|| Box::new(MemEngine::new(self.mem_engine_config)) as Box<dyn Engine>)
+                .take(self.num_mem_engines),
+        )
+        .chain(
+            repeat_with(|| Box::new(CSEngine::new(self.cs_engine_config)) as Box<dyn Engine>)
+                .take(self.num_cs_engines),
+        )
+        .collect()
     }
 }
 

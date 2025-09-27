@@ -134,7 +134,7 @@ int main() {
     }
 
     constexpr std::uint32_t kGpuDramAddr = 0x8000;
-    const std::string payload = "hello world";
+    const std::string payload = "hello world hello world hello world hello";
 
     const auto format_hex32 = [](std::uint32_t value) {
         std::ostringstream oss;

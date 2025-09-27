@@ -25,11 +25,17 @@ impl Engine for MemEngine {
         None
     }
 
+    fn done_dma_req(&mut self) {}
+
     fn get_mem_req(&self) -> Option<&crate::common::base::MemReq> {
         None
     }
 
-    fn done_dma_req(&mut self) {}
+    fn set_mem_resp(&mut self, data: Option<&Vec<u8>>) {}
+
+    fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULInterface> {
+        None
+    }
 }
 
 impl Configurable<MemEngineConfig> for MemEngine {

@@ -3,8 +3,10 @@ use crate::glug::completion::{Completion, CompletionConfig};
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
+use crate::glul::glul::{GLULConfig, GLUL};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::iter::repeat_with;
 
 pub struct Memory {
     data: HashMap<u32, u8>,
@@ -28,13 +30,13 @@ impl Memory {
             .collect()
     }
 
-    pub fn write_bytes(&mut self, addr: u32, data: Vec<u8>) {
+    pub fn write_bytes(&mut self, addr: u32, data: &Vec<u8>) {
         data.iter().enumerate().for_each(|(idx, byte)| {
             self.data.insert(addr + idx as u32, *byte);
         });
     }
 }
-#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct GLUGConfig {
     pub frontend: FrontendConfig,
@@ -42,6 +44,7 @@ pub struct GLUGConfig {
     pub decode_dispatch: DecodeDispatchConfig,
     pub engine: EngineConfig,
     pub completion: CompletionConfig,
+    pub gluls: Vec<GLULConfig>,
 }
 
 pub struct GLUG {
@@ -52,6 +55,8 @@ pub struct GLUG {
     decode_dispatch: DecodeDispatch,
     engines: Vec<Box<dyn Engine>>,
     completion: Completion,
+
+    gluls: Vec<GLUL>,
 
     dram: Memory,
 }
@@ -72,6 +77,9 @@ impl Configurable<GLUGConfig> for GLUG {
             decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
             engines: config.engine.generate_engines(),
             completion: Completion::new(config.completion),
+            gluls: (0..config.gluls.len())
+                .map(|i| GLUL::new(config.gluls[i]))
+                .collect(),
             dram: Memory {
                 data: HashMap::new(),
             },
@@ -83,12 +91,35 @@ impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Tick completion
 
+        // Service GLUL schedules
+        self.engines
+            .iter_mut()
+            .filter_map(|engine| engine.get_glul_req())
+            .for_each(|glul_if| {
+                self.gluls[glul_if.config.id].submit_thread_block(glul_if.thread_block);
+            });
+
+        self.gluls.iter_mut().for_each(|glul| {
+            glul.tick();
+        });
+
         // Service Mem requests
         if let Some(engine) = self
             .engines
             .iter_mut()
             .find(|engine| engine.get_mem_req().is_some())
-        {}
+        {
+            let mem_req = engine.get_mem_req().expect("Mem: unreachable");
+            println!("Served mem {:?}", mem_req);
+            if mem_req.write {
+                self.dram.write_bytes(mem_req.addr, &mem_req.data);
+                engine.set_mem_resp(None);
+            } else {
+                let read_data = self.dram.read_bytes(mem_req.addr, mem_req.bytes);
+                engine.set_mem_resp(Some(&read_data));
+                println!("Served mem");
+            }
+        }
 
         // Service DMA requests
         if let Some(engine) = self
@@ -103,7 +134,7 @@ impl Clocked for GLUG {
                         .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
                         .collect();
 
-                    self.dram.write_bytes(dma_req.target_addr, data);
+                    self.dram.write_bytes(dma_req.target_addr, &data);
                 }
 
                 DMADir::D2H => {
