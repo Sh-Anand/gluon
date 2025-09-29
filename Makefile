@@ -1,11 +1,10 @@
 CARGO ?= cargo
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
-CPPFLAGS ?= -I driver
+CPPFLAGS ?= -I sw/driver -I sw/driver/include
 
 RUST_MANIFEST := gluon-sim/Cargo.toml
-DRIVER_SRC := driver/gluon-sim/main.cpp
-DRIVER_BIN := driver/gluon-sim/build/gluon-driver
+DRIVER_BIN := sw/test/build/hello
 
 .PHONY: run server driver clean
 
@@ -24,12 +23,9 @@ run: server driver
 server:
 	@$(CARGO) build --manifest-path $(RUST_MANIFEST)
 
-$(DRIVER_BIN): $(DRIVER_SRC)
-	@mkdir -p $(dir $(DRIVER_BIN))
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
-
-driver: $(DRIVER_BIN)
+driver:
+	@$(MAKE) -C sw/test
 
 clean:
 	@$(CARGO) clean --manifest-path $(RUST_MANIFEST)
-	@rm -rf $(dir $(DRIVER_BIN))
+	@$(MAKE) -C sw/test clean

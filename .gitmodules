@@ -1,0 +1,3 @@
+[submodule "sw/libmuon"]
+	path = sw/libmuon
+	url = git@github.com:Sh-Anand/libmuon.git

@@ -25,7 +25,7 @@ $(DEVICE_BC): $(SRC) | $(BUILD_DIR)
 		-march=rv32im_zfinx -mabi=ilp32 \
 		--sysroot=$(MUON_32)/riscv32-unknown-elf \
 		-I$(MUON_32)/include \
-		-I../include \
+		-I../driver/include \
 		-DRAD_TARGET \
 		-O2 \
 		-Xclang -target-feature -Xclang +vortex \
@@ -35,11 +35,12 @@ $(DEVICE_OBJ): $(DEVICE_BC)
 	$(OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
 		--binary-architecture=x86-64 $< $@
 
-$(HOST_BIN): $(SRC) $(DEVICE_OBJ) ../src/rad.cpp ../src/driver.cpp | $(BUILD_DIR)
-	$(HOST_CLANG) -std=c++17 -DRAD_HOST -I.. -I../include \
+
+$(HOST_BIN): $(SRC) $(DEVICE_OBJ) ../driver/src/rad.cpp ../driver/src/driver.cpp | $(BUILD_DIR)
+	$(HOST_CLANG) -std=c++17 -DRAD_HOST -I../driver -I../driver/include \
 		-idirafter $(LLVM_INCLUDE_DIR) \
 		-D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS \
-		$(SRC) ../src/rad.cpp ../src/driver.cpp $(DEVICE_OBJ) -o $@ \
+		$(SRC) ../driver/src/rad.cpp ../driver/src/driver.cpp $(DEVICE_OBJ) -o $@ \
 		-fuse-ld=lld \
 		$(LLVM_LDFLAGS) $(LLVM_LIBS) -l:liblldELF.so -l:liblldCommon.so -Wl,-rpath,$(MUON_32)/lib
 

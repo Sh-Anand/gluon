@@ -1,3 +1,5 @@
 *.sock
 .vscode
 Cargo.lock
+build/
+target/
