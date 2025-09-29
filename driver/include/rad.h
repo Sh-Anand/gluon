@@ -5,7 +5,13 @@
 extern "C" {
 #endif
 
-void radKernelLaunch(const char *kernel_name, ...);
+typedef struct {
+    unsigned int x;
+    unsigned int y;
+    unsigned int z;
+} radDim3;
+
+void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim);
 
 #ifdef __cplusplus
 }

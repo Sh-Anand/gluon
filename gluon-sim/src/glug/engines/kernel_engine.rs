@@ -11,6 +11,7 @@ use crate::glug::engine::EngineCommand;
 use crate::glul::glul::GLULConfig;
 use crate::glul::glul::GLULInterface;
 use serde::Deserialize;
+use std::fmt;
 use std::mem::size_of;
 
 pub enum KernelEngineState {
@@ -65,7 +66,7 @@ impl KernelCommand {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct KernelPayload {
     entry_pc: u32,
     grid: (u16, u16, u16),
@@ -76,6 +77,25 @@ pub struct KernelPayload {
     printf_host_addr: u32,
     binary_sz: u32,
     params_sz: u32,
+}
+
+impl fmt::Debug for KernelPayload {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KernelPayload")
+            .field("entry_pc", &format_args!("0x{:08x}", self.entry_pc))
+            .field("grid", &self.grid)
+            .field("block", &self.block)
+            .field("regs_per_thread", &self.regs_per_thread)
+            .field("shmem_per_block", &self.shmem_per_block)
+            .field("flags", &self.flags)
+            .field(
+                "printf_host_addr",
+                &format_args!("0x{:08x}", self.printf_host_addr),
+            )
+            .field("binary_sz", &self.binary_sz)
+            .field("params_sz", &self.params_sz)
+            .finish()
+    }
 }
 
 impl KernelPayload {

@@ -14,7 +14,7 @@ impl Default for SimConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct TopConfig {
     pub sim: SimConfig,
     pub glug: GLUGConfig,

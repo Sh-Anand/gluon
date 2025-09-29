@@ -212,18 +212,6 @@ async fn handle_client(
                             )
                         })?;
 
-                    let preview_len = cmp::min(payload_size as usize, 16);
-                    if preview_len > 0 {
-                        let preview = unsafe {
-                            std::slice::from_raw_parts(host_ptr as *const u8, preview_len)
-                        };
-                        let preview_str = String::from_utf8_lossy(preview);
-                        println!(
-                            "Host data preview ({} bytes): \"{}\"",
-                            preview_len, preview_str
-                        );
-                    }
-
                     raw_cmd[2..6].copy_from_slice(&mapped_addr.to_le_bytes());
                 }
 
