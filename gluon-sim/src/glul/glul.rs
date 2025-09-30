@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use cyclotron::{cluster::Cluster, sim::{log::Logger, top::ClusterConfig}};
 use serde::Deserialize;
 
 use crate::common::base::{Clocked, Configurable, SimErr, ThreadBlock};
@@ -69,6 +72,7 @@ impl Configurable<GLULConfig> for GLULInterface {
 pub struct GLUL {
     num_free_cores: usize,
     config: GLULConfig,
+    logger: Arc<Logger>,
 }
 
 impl Configurable<GLULConfig> for GLUL {
@@ -76,6 +80,7 @@ impl Configurable<GLULConfig> for GLUL {
         GLUL {
             num_free_cores: config.num_cores,
             config,
+            logger: Arc::new(Logger::new(0)),
         }
     }
 }
@@ -91,5 +96,13 @@ impl Clocked for GLUL {
 }
 
 impl GLUL {
+    pub fn new_with_logger(config: GLULConfig, logger: Arc<Logger>) -> Self {
+        GLUL {
+            num_free_cores: config.num_cores,
+            config,
+            logger,
+        }
+    }
+
     pub fn submit_thread_block(&mut self, thread_block: ThreadBlock) {}
 }

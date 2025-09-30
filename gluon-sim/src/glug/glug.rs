@@ -4,9 +4,10 @@ use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
+use cyclotron::sim::log::Logger;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::iter::repeat_with;
+use std::sync::Arc;
 
 pub struct Memory {
     data: HashMap<u32, u8>,
@@ -45,6 +46,7 @@ pub struct GLUGConfig {
     pub engine: EngineConfig,
     pub completion: CompletionConfig,
     pub gluls: Vec<GLULConfig>,
+    pub log_level: u64,
 }
 
 pub struct GLUG {
@@ -59,6 +61,8 @@ pub struct GLUG {
     gluls: Vec<GLUL>,
 
     dram: Memory,
+
+    logger: Arc<Logger>,
 }
 
 impl GLUG {
@@ -83,6 +87,7 @@ impl Configurable<GLUGConfig> for GLUG {
             dram: Memory {
                 data: HashMap::new(),
             },
+            logger: Arc::new(Logger::new(config.log_level)),
         }
     }
 }
