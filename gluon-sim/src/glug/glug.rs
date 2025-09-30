@@ -46,16 +46,19 @@ impl GLUG {
 
 impl Configurable<GLUGConfig> for GLUG {
     fn new(config: GLUGConfig) -> Self {
+        let glul_configs = config.gluls.clone();
+
+        let mut engine_config = config.engine.clone();
+        engine_config.kernel_engine_config.gluls = glul_configs.clone();
+
         GLUG {
             cmd: Command::default(),
             cmd_valid: false,
             frontend: Frontend::new(config.frontend),
             decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
-            engines: config.engine.generate_engines(),
+            engines: engine_config.generate_engines(),
             completion: Completion::new(config.completion),
-            gluls: (0..config.gluls.len())
-                .map(|i| GLUL::new(config.gluls[i]))
-                .collect(),
+            gluls: glul_configs.iter().copied().map(GLUL::new).collect(),
             dram: Arc::new(RwLock::new(ToyMemory::default())),
             logger: Arc::new(Logger::new(config.log_level)),
         }

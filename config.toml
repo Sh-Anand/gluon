@@ -6,6 +6,23 @@ socket_path = "./gluon-sim.sock"
 timeout_cycles = 0
 
 [glug]
+log_level = 1
+
+[[glug.gluls]]
+id = 0
+num_cores = 4
+num_warps = 4
+num_lanes = 16
+regs_per_core = 256
+shmem = 4096
+
+[[glug.gluls]]
+id = 1
+num_cores = 8
+num_warps = 8
+num_lanes = 32
+regs_per_core = 512
+shmem = 8192
 
 [frontend]
 command_queue_size = 4
