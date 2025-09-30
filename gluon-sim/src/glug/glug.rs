@@ -5,38 +5,10 @@ use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
 use cyclotron::sim::log::Logger;
+use cyclotron::sim::toy_mem::ToyMemory;
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
-pub struct Memory {
-    data: HashMap<u32, u8>,
-}
-
-impl Memory {
-    pub fn read(&self, addr: &u32) -> u8 {
-        *self.data.get(addr).expect("Invalid DRAM Addr")
-    }
-
-    pub fn write(&mut self, addr: u32, data: u8) {
-        self.data.insert(addr, data);
-    }
-
-    pub fn read_bytes(&self, addr: u32, bytes: u32) -> Vec<u8> {
-        (0..bytes)
-            .map(|offset| {
-                let byte_addr = addr + offset as u32;
-                *self.data.get(&byte_addr).expect("Invalid DRAM Addr")
-            })
-            .collect()
-    }
-
-    pub fn write_bytes(&mut self, addr: u32, data: &Vec<u8>) {
-        data.iter().enumerate().for_each(|(idx, byte)| {
-            self.data.insert(addr + idx as u32, *byte);
-        });
-    }
-}
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct GLUGConfig {
@@ -60,7 +32,7 @@ pub struct GLUG {
 
     gluls: Vec<GLUL>,
 
-    dram: Memory,
+    dram: Arc<RwLock<ToyMemory>>,
 
     logger: Arc<Logger>,
 }
@@ -84,9 +56,7 @@ impl Configurable<GLUGConfig> for GLUG {
             gluls: (0..config.gluls.len())
                 .map(|i| GLUL::new(config.gluls[i]))
                 .collect(),
-            dram: Memory {
-                data: HashMap::new(),
-            },
+            dram: Arc::new(RwLock::new(ToyMemory::default())),
             logger: Arc::new(Logger::new(config.log_level)),
         }
     }
@@ -117,10 +87,24 @@ impl Clocked for GLUG {
             let mem_req = engine.get_mem_req().expect("Mem: unreachable");
             println!("Served mem {:?}", mem_req);
             if mem_req.write {
-                self.dram.write_bytes(mem_req.addr, &mem_req.data);
+                let mut dram = self
+                    .dram
+                    .write()
+                    .expect("gmem poisoned");
+                mem_req.data.iter().enumerate().for_each(|(idx, byte)| dram.write_byte((mem_req.addr + idx as u32) as usize, *byte).expect("gmem write errored"));
+                
                 engine.set_mem_resp(None);
             } else {
-                let read_data = self.dram.read_bytes(mem_req.addr, mem_req.bytes);
+                let read_data = {
+                    let mut dram = self.dram.write().expect("gmem poisoned");
+                    (0..mem_req.bytes)
+                        .map(|i| {
+                            (dram
+                                .read_byte((mem_req.addr + i) as usize)
+                                .expect("gmem read impossible"))
+                        })
+                        .collect::<Vec<u8>>()
+                };
                 engine.set_mem_resp(Some(&read_data));
                 println!("Served mem");
             }
@@ -135,15 +119,27 @@ impl Clocked for GLUG {
             let dma_req = engine.get_dma_req().expect("DMA: unreachable");
             match dma_req.dir {
                 DMADir::H2D => {
-                    let data: Vec<u8> = (0..dma_req.sz)
+                    let mut dram =self
+                        .dram
+                        .write()
+                        .expect("gmem poisoned");
+                        
+                    (0..dma_req.sz)
                         .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
-                        .collect();
-
-                    self.dram.write_bytes(dma_req.target_addr, &data);
+                        .enumerate().for_each(|(idx, byte)| dram.write_byte((dma_req.target_addr + idx as u32) as usize, byte).expect("gmem write errored"));
                 }
 
                 DMADir::D2H => {
-                    let data = self.dram.read_bytes(dma_req.src_addr, dma_req.sz);
+                    let data = {
+                        let mut dram = self.dram.write().expect("gmem poisoned");
+                        (0..dma_req.sz)
+                            .map(|i| {
+                                (dram
+                                    .read_byte((dma_req.src_addr + i) as usize)
+                                    .expect("gmem read impossible"))
+                            })
+                            .collect::<Vec<u8>>()
+                    };
                     data.iter().enumerate().for_each(|(idx, byte)| unsafe {
                         *((dma_req.target_addr + idx as u32) as *mut u8) = *byte;
                     });

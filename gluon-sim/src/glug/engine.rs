@@ -1,6 +1,6 @@
 use std::iter::repeat_with;
 
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq, MemResp};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq};
 use crate::glug::engines::{
     cs_engine::{CSEngine, CSEngineConfig},
     kernel_engine::{KernelEngine, KernelEngineConfig},
