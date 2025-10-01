@@ -18,6 +18,7 @@ pub trait Engine: Clocked + Send {
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
     fn get_glul_req(&self) -> Option<&GLULInterface>;
+    fn clear_glul_req(&mut self, id: usize);
 }
 
 #[derive(Debug, Clone, Deserialize)]

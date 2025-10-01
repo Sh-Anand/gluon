@@ -36,6 +36,8 @@ impl Engine for CSEngine {
     fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULInterface> {
         None
     }
+
+    fn clear_glul_req(&mut self, id: usize) {}
 }
 
 impl Configurable<CSEngineConfig> for CSEngine {

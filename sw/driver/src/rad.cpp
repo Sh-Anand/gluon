@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <elf.h>
 
 #include <fstream>
 #include <memory>
@@ -186,20 +187,46 @@ static std::optional<std::uint32_t> rad_find_symbol_pc(const std::vector<std::ui
         return std::nullopt;
     }
     LLVMSymbolIteratorRef symbol = LLVMGetSymbols(object);
-    std::optional<std::uint32_t> result;
+    std::optional<std::uint64_t> vaddr;
     while (!LLVMIsSymbolIteratorAtEnd(object, symbol)) {
         const char *name = LLVMGetSymbolName(symbol);
         if (name && strcmp(name, symbol_name) == 0) {
             unsigned long long addr = LLVMGetSymbolAddress(symbol);
-            if (addr <= UINT32_MAX)
-                result = static_cast<std::uint32_t>(addr);
+            vaddr = addr;
             break;
         }
         LLVMMoveToNextSymbol(symbol);
     }
     LLVMDisposeSymbolIterator(symbol);
     LLVMDisposeObjectFile(object);
-    return result;
+    if (!vaddr)
+        return std::nullopt;
+    if (binary.size() < sizeof(Elf32_Ehdr))
+        return std::nullopt;
+    const auto *ehdr = reinterpret_cast<const Elf32_Ehdr *>(binary.data());
+    if (std::memcmp(ehdr->e_ident, ELFMAG, SELFMAG) != 0)
+        return std::nullopt;
+    if (ehdr->e_ident[EI_CLASS] != ELFCLASS32)
+        return std::nullopt;
+    if (ehdr->e_phentsize != sizeof(Elf32_Phdr))
+        return std::nullopt;
+    std::size_t ph_size = static_cast<std::size_t>(ehdr->e_phnum) * sizeof(Elf32_Phdr);
+    if (binary.size() < static_cast<std::size_t>(ehdr->e_phoff) + ph_size)
+        return std::nullopt;
+    const auto *phdrs = reinterpret_cast<const Elf32_Phdr *>(binary.data() + ehdr->e_phoff);
+    for (std::size_t i = 0; i < ehdr->e_phnum; ++i) {
+        if (phdrs[i].p_type != PT_LOAD)
+            continue;
+        std::uint64_t start = phdrs[i].p_vaddr;
+        std::uint64_t size = phdrs[i].p_memsz;
+        if (*vaddr < start || *vaddr >= start + size)
+            continue;
+        std::uint64_t offset = (*vaddr - start) + phdrs[i].p_offset;
+        if (offset > UINT32_MAX)
+            return std::nullopt;
+        return static_cast<std::uint32_t>(offset);
+    }
+    return std::nullopt;
 }
 
 struct KernelBinary {

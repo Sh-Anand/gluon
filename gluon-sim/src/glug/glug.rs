@@ -51,6 +51,8 @@ impl Configurable<GLUGConfig> for GLUG {
         let mut engine_config = config.engine.clone();
         engine_config.kernel_engine_config.gluls = glul_configs.clone();
 
+        let dram = Arc::new(RwLock::new(ToyMemory::default()));
+        let logger = Arc::new(Logger::new(config.log_level));
         GLUG {
             cmd: Command::default(),
             cmd_valid: false,
@@ -58,9 +60,13 @@ impl Configurable<GLUGConfig> for GLUG {
             decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
             engines: engine_config.generate_engines(),
             completion: Completion::new(config.completion),
-            gluls: glul_configs.iter().copied().map(GLUL::new).collect(),
-            dram: Arc::new(RwLock::new(ToyMemory::default())),
-            logger: Arc::new(Logger::new(config.log_level)),
+            gluls: glul_configs
+                .iter()
+                .copied()
+                .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), dram.clone()))
+                .collect(),
+            dram,
+            logger,
         }
     }
 }
@@ -71,15 +77,24 @@ impl Clocked for GLUG {
 
         // Service GLUL schedules
         self.engines
-            .iter_mut()
-            .filter_map(|engine| engine.get_glul_req())
-            .for_each(|glul_if| {
-                self.gluls[glul_if.config.id].submit_thread_block(glul_if.thread_block);
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, engine)| {
+                engine.get_glul_req().copied().map(|glul_if| (idx, glul_if))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .for_each(|(idx, glul_if)| {
+                self.gluls[glul_if.config.id]
+                    .submit_thread_block(glul_if.thread_block, glul_if.n_tb);
+                self.engines
+                    .get_mut(idx)
+                    .expect("Engine idx out of bounds")
+                    .clear_glul_req(glul_if.config.id);
             });
 
-        self.gluls.iter_mut().for_each(|glul| {
-            glul.tick();
-        });
+        // Tick GLULs
+        self.gluls.iter_mut().try_for_each(|glul| glul.tick())?;
 
         // Service Mem requests
         if let Some(engine) = self
@@ -90,12 +105,12 @@ impl Clocked for GLUG {
             let mem_req = engine.get_mem_req().expect("Mem: unreachable");
             println!("Served mem {:?}", mem_req);
             if mem_req.write {
-                let mut dram = self
-                    .dram
-                    .write()
-                    .expect("gmem poisoned");
-                mem_req.data.iter().enumerate().for_each(|(idx, byte)| dram.write_byte((mem_req.addr + idx as u32) as usize, *byte).expect("gmem write errored"));
-                
+                let mut dram = self.dram.write().expect("gmem poisoned");
+                mem_req.data.iter().enumerate().for_each(|(idx, byte)| {
+                    dram.write_byte((mem_req.addr + idx as u32) as usize, *byte)
+                        .expect("gmem write errored")
+                });
+
                 engine.set_mem_resp(None);
             } else {
                 let read_data = {
@@ -122,14 +137,15 @@ impl Clocked for GLUG {
             let dma_req = engine.get_dma_req().expect("DMA: unreachable");
             match dma_req.dir {
                 DMADir::H2D => {
-                    let mut dram =self
-                        .dram
-                        .write()
-                        .expect("gmem poisoned");
-                        
+                    let mut dram = self.dram.write().expect("gmem poisoned");
+
                     (0..dma_req.sz)
                         .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
-                        .enumerate().for_each(|(idx, byte)| dram.write_byte((dma_req.target_addr + idx as u32) as usize, byte).expect("gmem write errored"));
+                        .enumerate()
+                        .for_each(|(idx, byte)| {
+                            dram.write_byte((dma_req.target_addr + idx as u32) as usize, byte)
+                                .expect("gmem write errored")
+                        });
                 }
 
                 DMADir::D2H => {
