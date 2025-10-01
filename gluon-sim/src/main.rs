@@ -1,4 +1,3 @@
-use std::cmp;
 use std::convert::TryInto;
 use std::env;
 use std::error::Error;
@@ -10,7 +9,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use gluon::common::base::Clocked;
-use gluon::glug::engines::kernel_engine;
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{unix::SocketAddr, UnixListener, UnixStream};
@@ -191,16 +189,6 @@ async fn handle_client(
                                 io::Error::new(
                                     ErrorKind::InvalidData,
                                     "kernel command missing payload size",
-                                )
-                            })?;
-
-                    let host_ptr =
-                        shared_memory
-                            .translate(host_offset, payload_size)
-                            .map_err(|err| {
-                                io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    format!("failed to translate shared memory pointer: {err}"),
                                 )
                             })?;
 

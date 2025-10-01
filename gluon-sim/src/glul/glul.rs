@@ -1,7 +1,4 @@
-use std::{
-    os::unix::thread,
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use cyclotron::{
     base::behavior::ModuleBehaviors,
@@ -81,6 +78,13 @@ impl Configurable<GLULConfig> for GLULInterface {
     }
 }
 
+pub enum GLULState {
+    S0,
+    S1,
+    S2,
+    S3,
+}
+
 pub struct GLUL {
     num_free_cores: usize,
     config: GLULConfig,
@@ -88,6 +92,10 @@ pub struct GLUL {
     neutrino: Neutrino,
     dram: Arc<RwLock<ToyMemory>>,
     logger: Arc<Logger>,
+
+    state: GLULState,
+    thread_block: ThreadBlock,
+    n_tb: u32,
 }
 
 impl Configurable<GLULConfig> for GLUL {
@@ -109,19 +117,59 @@ impl Configurable<GLULConfig> for GLUL {
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             dram,
             logger,
+            state: GLULState::S0,
+            thread_block: ThreadBlock::default(),
+            n_tb: 0,
         }
     }
 }
 
 impl Clocked for GLUL {
     fn tick(&mut self) -> Result<(), SimErr> {
-        self.cores.iter_mut().for_each(|core| {
-            core.tick_one();
-            core.execute(&mut self.neutrino);
-        });
-        self.neutrino.tick_one();
-        self.neutrino
-            .update(&mut self.cores.iter_mut().map(|c| &mut c.scheduler).collect());
+        match self.state {
+            GLULState::S0 => {}
+            GLULState::S1 => {
+                let threads_per_tb = self.thread_block.dim.0 as u32
+                    * self.thread_block.dim.1 as u32
+                    * self.thread_block.dim.2 as u32;
+                let warps_per_tb = threads_per_tb / self.config.num_lanes as u32;
+                let warps_per_core = (warps_per_tb / self.config.num_cores as u32).max(1);
+                let cores_per_tb = self.config.num_cores / self.n_tb as usize;
+                println!(
+                    "Threads per TB: {}, Warps per TB: {}, Warps per Core: {}, Cores per TB: {}",
+                    threads_per_tb, warps_per_tb, warps_per_core, cores_per_tb
+                );
+                (0..self.n_tb).for_each(|tb_idx| {
+                    let core_start = tb_idx * cores_per_tb as u32;
+                    let core_end = core_start + cores_per_tb as u32;
+                    println!("Core start: {}, Core end: {}", core_start, core_end);
+                    (core_start..core_end).for_each(|core_idx| {
+                        self.cores
+                            .get_mut(core_idx as usize)
+                            .expect("Core index out of bounds")
+                            .spawn_n_warps(self.thread_block.pc, warps_per_core as usize);
+                    });
+                });
+                self.state = GLULState::S2;
+            }
+            GLULState::S2 => {
+                self.cores.iter_mut().for_each(|core| {
+                    core.tick_one();
+                    core.execute(&mut self.neutrino);
+                });
+                self.neutrino.tick_one();
+                self.neutrino
+                    .update(&mut self.cores.iter_mut().map(|c| &mut c.scheduler).collect());
+
+                if self.cores.iter().all(|core| core.all_warps_retired()) {
+                    self.state = GLULState::S3;
+                }
+            }
+            GLULState::S3 => {
+                self.state = GLULState::S0;
+            }
+        };
+
         Ok(())
     }
 
@@ -151,6 +199,9 @@ impl GLUL {
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             dram,
             logger,
+            state: GLULState::S0,
+            thread_block: ThreadBlock::default(),
+            n_tb: 0,
         }
     }
 
@@ -171,25 +222,8 @@ impl GLUL {
                 .join("");
             println!("PC 0x{:08x}: {}", addr, bytes);
         });
-        let threads_per_tb =
-            thread_block.dim.0 as u32 * thread_block.dim.1 as u32 * thread_block.dim.2 as u32;
-        let warps_per_tb = threads_per_tb / self.config.num_lanes as u32;
-        let warps_per_core = (warps_per_tb / self.config.num_cores as u32).max(1);
-        let cores_per_tb = self.config.num_cores / n_tb as usize;
-        println!(
-            "Threads per TB: {}, Warps per TB: {}, Warps per Core: {}, Cores per TB: {}",
-            threads_per_tb, warps_per_tb, warps_per_core, cores_per_tb
-        );
-        (0..n_tb).for_each(|tb_idx| {
-            let core_start = tb_idx * cores_per_tb as u32;
-            let core_end = core_start + cores_per_tb as u32;
-            println!("Core start: {}, Core end: {}", core_start, core_end);
-            (core_start..core_end).for_each(|core_idx| {
-                self.cores
-                    .get_mut(core_idx as usize)
-                    .expect("Core index out of bounds")
-                    .spawn_n_warps(thread_block.pc, warps_per_core as usize);
-            });
-        });
+        self.thread_block = thread_block;
+        self.n_tb = n_tb;
+        self.state = GLULState::S1;
     }
 }
