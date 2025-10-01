@@ -370,7 +370,7 @@ extern "C" void radKernelLaunch(const char *kernel_name,
         return;
     }
     std::vector<std::uint8_t> payload;
-    payload.reserve(34 + kernel_binary->image.size());
+    payload.reserve(36 + kernel_binary->image.size());
     const auto push_u32 = [&payload](std::uint32_t value) {
         payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
@@ -397,6 +397,7 @@ extern "C" void radKernelLaunch(const char *kernel_name,
     push_u32(0);
     push_u32(static_cast<std::uint32_t>(kernel_binary->image.size()));
     push_u32(0);
+    push_u16(0);
     payload.insert(payload.end(), kernel_binary->image.begin(), kernel_binary->image.end());
     if (payload.size() > UINT32_MAX) {
         fprintf(stderr, "radKernelLaunch: payload too large\n");

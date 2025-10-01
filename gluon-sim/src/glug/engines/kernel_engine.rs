@@ -98,8 +98,6 @@ impl fmt::Debug for KernelPayload {
 }
 
 impl KernelPayload {
-    pub const SERIALIZED_SIZE: usize = 34;
-
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let entry_pc = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let grid = (
@@ -255,30 +253,14 @@ impl Clocked for KernelEngine {
                     self.mem_req.valid = true;
                     self.mem_req.write = false;
                     self.mem_req.addr = self.cmd.gpu_addr;
-                    self.mem_req.bytes = KernelPayload::SERIALIZED_SIZE as u32;
+                    self.mem_req.bytes = size_of::<KernelPayload>() as u32;
                     println!("Queued mem {:?}", self.mem_req);
                 }
             }
 
             KernelEngineState::S3 => {
-                if self.mem_resp.data.len() < KernelPayload::SERIALIZED_SIZE {
-                    println!(
-                        "Kernel payload header truncated: expected {} got {}",
-                        KernelPayload::SERIALIZED_SIZE,
-                        self.mem_resp.data.len()
-                    );
-                    self.state = KernelEngineState::S4;
-                    return Ok(());
-                }
-                let header_bytes = &self.mem_resp.data[..KernelPayload::SERIALIZED_SIZE];
-                let kernel_payload = KernelPayload::from_bytes(header_bytes);
-                let header_dump = header_bytes
-                    .iter()
-                    .map(|byte| format!("{:02x}", byte))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                println!("Kernel header bytes: {header_dump}");
-                println!("Kernel payload: {:?}", kernel_payload);
+                println!("Kernel payload size: {}", size_of::<KernelPayload>());
+                let kernel_payload = KernelPayload::from_bytes(&self.mem_resp.data);
                 self.tb_ctr = 0;
                 self.total_tb = kernel_payload.grid.0 as u32
                     * kernel_payload.grid.1 as u32
@@ -314,7 +296,7 @@ impl Clocked for KernelEngine {
                     glul_if.thread_block = ThreadBlock {
                         id: self.tb_ctr,
                         pc: self.cmd.gpu_addr
-                            + KernelPayload::SERIALIZED_SIZE as u32
+                            + size_of::<KernelPayload>() as u32
                             + kernel_payload.entry_pc,
                         dim: kernel_payload.block,
                         regs: kernel_payload.regs_per_thread as u32,

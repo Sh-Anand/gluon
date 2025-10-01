@@ -164,7 +164,11 @@ impl GLUL {
         (0..8).for_each(|idx| {
             let addr = pc + idx * 8;
             let instr = dram.read::<8>(addr).expect("instruction read failed");
-            let bytes = instr.iter().map(|byte| format!("{:02x}", byte)).collect::<Vec<_>>().join("");
+            let bytes = instr
+                .iter()
+                .map(|byte| format!("{:02x}", byte))
+                .collect::<Vec<_>>()
+                .join("");
             println!("PC 0x{:08x}: {}", addr, bytes);
         });
         let threads_per_tb =

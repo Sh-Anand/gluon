@@ -103,9 +103,9 @@ impl Clocked for GLUG {
             .find(|engine| engine.get_mem_req().is_some())
         {
             let mem_req = engine.get_mem_req().expect("Mem: unreachable");
+            let mut dram = self.dram.write().expect("gmem poisoned");
             println!("Served mem {:?}", mem_req);
             if mem_req.write {
-                let mut dram = self.dram.write().expect("gmem poisoned");
                 mem_req.data.iter().enumerate().for_each(|(idx, byte)| {
                     dram.write_byte((mem_req.addr + idx as u32) as usize, *byte)
                         .expect("gmem write errored")
@@ -114,12 +114,10 @@ impl Clocked for GLUG {
                 engine.set_mem_resp(None);
             } else {
                 let read_data = {
-                    let mut dram = self.dram.write().expect("gmem poisoned");
                     (0..mem_req.bytes)
                         .map(|i| {
-                            (dram
-                                .read_byte((mem_req.addr + i) as usize)
-                                .expect("gmem read impossible"))
+                            dram.read_byte((mem_req.addr + i) as usize)
+                                .expect("gmem read impossible")
                         })
                         .collect::<Vec<u8>>()
                 };
@@ -153,9 +151,8 @@ impl Clocked for GLUG {
                         let mut dram = self.dram.write().expect("gmem poisoned");
                         (0..dma_req.sz)
                             .map(|i| {
-                                (dram
-                                    .read_byte((dma_req.src_addr + i) as usize)
-                                    .expect("gmem read impossible"))
+                                dram.read_byte((dma_req.src_addr + i) as usize)
+                                    .expect("gmem read impossible")
                             })
                             .collect::<Vec<u8>>()
                     };
