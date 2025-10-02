@@ -3,14 +3,21 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 CPPFLAGS ?= -I sw/driver -I sw/driver/include
 
-RUST_MANIFEST := gluon-sim/Cargo.toml
-DRIVER_BIN := sw/test/build/hello
+DEFAULT_TEST := hello
+TEST ?= $(DEFAULT_TEST)
 
-.PHONY: run server driver clean
+RUST_MANIFEST := gluon-sim/Cargo.toml
+DRIVER_BIN := sw/test/build/$(TEST)/$(TEST)
+
+TEST_DIRS := $(wildcard sw/test/*/)
+TESTS := $(filter-out sw/test/build/,$(TEST_DIRS))
+TEST_NAMES := $(patsubst %/,%,$(patsubst sw/test/%,%,$(TESTS)))
+
+.PHONY: run server driver clean $(TEST_NAMES)
 
 run: server driver
 	@set -euo pipefail; \
-	$(CARGO) run --manifest-path $(RUST_MANIFEST) & \
+	RUST_LOG=debug $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
 	SERVER_PID=$$!; \
 	trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	sleep 1; \
@@ -24,8 +31,22 @@ server:
 	@$(CARGO) build --manifest-path $(RUST_MANIFEST)
 
 driver:
-	@$(MAKE) -C sw/test
+	@$(MAKE) -C sw/test TEST=$(TEST)
 
 clean:
 	@$(CARGO) clean --manifest-path $(RUST_MANIFEST)
 	@$(MAKE) -C sw/test clean
+
+$(TEST_NAMES):
+	@set -euo pipefail; \
+	$(MAKE) -C sw/test TEST=$@; \
+	$(CARGO) build --manifest-path $(RUST_MANIFEST); \
+	RUST_LOG=debug $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
+	SERVER_PID=$$!; \
+	trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
+	sleep 1; \
+	if ! kill -0 $$SERVER_PID 2>/dev/null; then \
+		wait $$SERVER_PID || true; \
+		exit 0; \
+	fi; \
+	$(MAKE) -C sw/test TEST=$@ run

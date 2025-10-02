@@ -66,7 +66,7 @@ static LLVMTargetMachineRef rad_create_target_machine(const char *triple) {
         "generic",
         "+vortex",
         LLVMCodeGenLevelDefault,
-        LLVMRelocDefault,
+        LLVMRelocPIC,
         LLVMCodeModelDefault);
     if (!tm) {
         fprintf(stderr, "radKernelLaunch: failed to create target machine for %s\n", triple);
@@ -235,10 +235,10 @@ struct KernelBinary {
 };
 
 static std::optional<KernelBinary> rad_build_kernel_binary(const char *kernel_name) {
-    extern const unsigned char _binary_build_hello_kernel_bc_start[];
-    extern const unsigned char _binary_build_hello_kernel_bc_end[];
-    const unsigned char *bitcode = _binary_build_hello_kernel_bc_start;
-    const unsigned char *bitcode_end = _binary_build_hello_kernel_bc_end;
+    extern const unsigned char __gluon_kernel_start[];
+    extern const unsigned char __gluon_kernel_end[];
+    const unsigned char *bitcode = __gluon_kernel_start;
+    const unsigned char *bitcode_end = __gluon_kernel_end;
     const unsigned long bitcode_size =
         (unsigned long)(bitcode_end > bitcode ? (bitcode_end - bitcode) : 0);
     if (!bitcode_size) {
