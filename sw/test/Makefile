@@ -60,12 +60,11 @@ $(DEVICE_OBJ): $(DEVICE_BC)
 		--redefine-sym _binary_build_$(TEST_NAME)_kernel_bc_end=__gluon_kernel_end \
 		--redefine-sym _binary_build_$(TEST_NAME)_kernel_bc_size=__gluon_kernel_size \
 		$< $@
-
-$(HOST_BIN): $(HOST_SRCS) $(DEVICE_OBJ) ../driver/src/rad.cpp ../driver/src/driver.cpp | $(BUILD_DIR)
-	$(HOST_CLANG) -std=c++17 -I../driver -I../driver/include \
+$(HOST_BIN): $(HOST_SRCS) $(DEVICE_OBJ) ../driver/src/rad.cpp ../../gluon-sim/src/driver.cpp | $(BUILD_DIR)
+	$(HOST_CLANG) -std=c++17 -I../driver -I../driver/include -I../../gluon-sim/include \
 		-idirafter $(LLVM_INCLUDE_DIR) \
 		-D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS \
-		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/src/driver.cpp $(DEVICE_OBJ) -o $@ \
+		$(HOST_SRCS) ../driver/src/rad.cpp ../../gluon-sim/src/driver.cpp $(DEVICE_OBJ) -o $@ \
 		-fuse-ld=lld \
 		$(LLVM_LDFLAGS) $(LLVM_LIBS) -l:liblldELF.so -l:liblldCommon.so -Wl,-rpath,$(MUON_32)/lib
 
