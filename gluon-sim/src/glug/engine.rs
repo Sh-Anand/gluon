@@ -6,19 +6,21 @@ use crate::glug::engines::{
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
-use crate::glul::glul::GLULInterface;
+use crate::glul::glul::{GLULReq, GLULStatus};
 use serde::Deserialize;
 
 pub trait Engine: Clocked + Send {
-    fn init(&mut self, cmd: EngineCommand);
+    fn set_cmd(&mut self, cmd: EngineCommand);
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
+    fn set_gluls(&mut self, gluls: Vec<GLULStatus>);
     fn get_dma_req(&self) -> Option<&DMAReq>;
     fn done_dma_req(&mut self);
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
-    fn get_glul_req(&self) -> Option<&GLULInterface>;
-    fn clear_glul_req(&mut self, id: usize);
+    fn get_glul_req(&self) -> Option<&GLULReq>;
+    fn clear_glul_req(&mut self);
+    fn notify_glul_done(&mut self, tbs: u32);
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -8,10 +8,12 @@ use crate::common::base::SimErr;
 use crate::common::base::ThreadBlock;
 use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
-use crate::glul::glul::GLULConfig;
-use crate::glul::glul::GLULInterface;
+use crate::glul::glul::GLULReq;
+use crate::glul::glul::GLULStatus;
 use serde::Deserialize;
 use std::fmt;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 pub enum KernelEngineState {
     S0,
@@ -22,19 +24,9 @@ pub enum KernelEngineState {
     S5,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Default, Debug, Clone, Deserialize)]
 #[serde(default)]
-pub struct KernelEngineConfig {
-    pub gluls: Vec<GLULConfig>,
-}
-
-impl Default for KernelEngineConfig {
-    fn default() -> Self {
-        KernelEngineConfig {
-            gluls: vec![GLULConfig::default()],
-        }
-    }
-}
+pub struct KernelEngineConfig {}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KernelCommand {
@@ -132,6 +124,7 @@ impl KernelPayload {
 
 pub struct KernelEngine {
     cmd: KernelCommand,
+    cmd_valid: bool,
 
     dma_req: DMAReq,
 
@@ -141,38 +134,34 @@ pub struct KernelEngine {
     state: KernelEngineState,
     tb_ctr: u32,
     total_tb: u32,
-    done_tb: u32,
+    tb_done: u32,
 
-    gluls: Vec<GLULInterface>,
+    gluls: Vec<GLULStatus>,
+    glul_req: GLULReq,
 }
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
     fn new(_config: KernelEngineConfig) -> Self {
         KernelEngine {
             cmd: KernelCommand::default(),
+            cmd_valid: false,
             dma_req: DMAReq::default(),
             mem_req: MemReq::default(),
             mem_resp: MemResp::default(),
             state: KernelEngineState::S0,
             tb_ctr: 0,
             total_tb: 0,
-            done_tb: 0,
-            gluls: (0.._config.gluls.len())
-                .map(|i| GLULInterface::new(_config.gluls[i]))
-                .collect(),
+            tb_done: 0,
+            gluls: vec![],
+            glul_req: GLULReq::default(),
         }
     }
 }
 
 impl Engine for KernelEngine {
-    fn init(&mut self, cmd: EngineCommand) {
+    fn set_cmd(&mut self, cmd: EngineCommand) {
+        self.cmd_valid = true;
         self.cmd = KernelCommand::from_engine_cmd(cmd);
-        self.state = KernelEngineState::S1;
-
-        println!(
-            "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
-            self.cmd.id, self.cmd.host_addr, self.cmd.sz, self.cmd.gpu_addr
-        );
     }
 
     fn busy(&self) -> bool {
@@ -213,19 +202,42 @@ impl Engine for KernelEngine {
         }
     }
 
-    fn get_glul_req(&self) -> Option<&GLULInterface> {
-        self.gluls.iter().find(|glul| glul.n_tb > 0)
+    fn get_glul_req(&self) -> Option<&GLULReq> {
+        if self.glul_req.n_tb > 0 {
+            Some(&self.glul_req)
+        } else {
+            None
+        }
     }
 
-    fn clear_glul_req(&mut self, id: usize) {
-        self.gluls[id].n_tb = 0;
+    fn clear_glul_req(&mut self) {
+        self.glul_req.n_tb = 0;
+    }
+
+    fn notify_glul_done(&mut self, tbs: u32) {
+        assert!(self.tb_done + tbs <= self.total_tb);
+        self.tb_done += tbs;
+    }
+
+    fn set_gluls(&mut self, gluls: Vec<GLULStatus>) {
+        self.gluls = gluls
     }
 }
 
 impl Clocked for KernelEngine {
     fn tick(&mut self) -> Result<(), SimErr> {
         match &self.state {
-            KernelEngineState::S0 => {}
+            KernelEngineState::S0 => {
+                if self.cmd_valid {
+                    self.state = KernelEngineState::S1;
+                    self.tb_ctr = 0;
+                    println!(
+                        "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
+                        self.cmd.id, self.cmd.host_addr, self.cmd.sz, self.cmd.gpu_addr
+                    );
+                }
+            }
+
             KernelEngineState::S1 => {
                 if self.dma_req.valid {
                     if self.dma_req.done {
@@ -259,9 +271,7 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S3 => {
-                println!("Kernel payload size: {}", size_of::<KernelPayload>());
                 let kernel_payload = KernelPayload::from_bytes(&self.mem_resp.data);
-                self.tb_ctr = 0;
                 self.total_tb = kernel_payload.grid.0 as u32
                     * kernel_payload.grid.1 as u32
                     * kernel_payload.grid.2 as u32;
@@ -269,54 +279,61 @@ impl Clocked for KernelEngine {
                     * kernel_payload.block.1 as u32
                     * kernel_payload.block.2 as u32;
                 let available_tbs = self.total_tb - self.tb_ctr;
-                if let Some((glul_if_idx, n_tb)) = self
-                    .gluls
-                    .iter_mut()
-                    .enumerate()
-                    .map(|(idx, glul)| {
-                        (
-                            idx,
-                            glul.available_threads
-                                / (tb_size as usize).min(
-                                    glul.config.regs_per_core * glul.config.num_cores
-                                        / (kernel_payload.regs_per_thread as usize
-                                            * glul.config.num_lanes)
-                                            .min(
-                                                glul.config.shmem
-                                                    / kernel_payload.shmem_per_block as usize,
-                                            ),
-                                ),
-                        )
-                    })
-                    .filter(|(_, value)| *value > 0)
-                    .min_by_key(|(_, value)| *value)
-                {
-                    let glul_if = &mut self.gluls[glul_if_idx];
-                    glul_if.n_tb = (n_tb as u32).min(available_tbs);
-                    glul_if.thread_block = ThreadBlock {
-                        id: self.tb_ctr,
-                        pc: self.cmd.gpu_addr
-                            + size_of::<KernelPayload>() as u32
-                            + kernel_payload.entry_pc,
-                        dim: kernel_payload.block,
-                        regs: kernel_payload.regs_per_thread as u32,
-                        shmem: kernel_payload.shmem_per_block as u32,
-                    };
 
-                    self.tb_ctr += n_tb as u32;
+                if available_tbs > 0 {
+                    if let Some((glul_if_idx, n_tb)) = self
+                        .gluls
+                        .iter()
+                        .filter(|glul| !*glul.busy.read().expect("GLUL busy poisoned"))
+                        .enumerate()
+                        .map(|(idx, glul)| {
+                            let glul_cfg = glul.config;
+                            (
+                                idx,
+                                glul_cfg.num_cores * glul_cfg.num_warps * glul_cfg.num_lanes
+                                    / (tb_size as usize).min(
+                                        glul_cfg.regs_per_core * glul_cfg.num_cores
+                                            / (kernel_payload.regs_per_thread as usize
+                                                * glul_cfg.num_lanes)
+                                                .min(
+                                                    glul_cfg.shmem
+                                                        / kernel_payload.shmem_per_block as usize,
+                                                ),
+                                    ),
+                            )
+                        })
+                        .filter(|(_, value)| *value > 0)
+                        .min_by_key(|(_, value)| *value)
+                    {
+                        self.glul_req.n_tb = (n_tb as u32).min(available_tbs);
+                        self.glul_req.thread_block = ThreadBlock {
+                            id: self.tb_ctr,
+                            pc: self.cmd.gpu_addr
+                                + size_of::<KernelPayload>() as u32
+                                + kernel_payload.entry_pc,
+                            dim: kernel_payload.block,
+                            regs: kernel_payload.regs_per_thread as u32,
+                            shmem: kernel_payload.shmem_per_block as u32,
+                        };
+                        self.glul_req.idx = glul_if_idx;
+
+                        self.tb_ctr += self.glul_req.n_tb as u32;
+                    }
                 }
 
-                if self.done_tb == self.total_tb {
+                if self.tb_done == self.total_tb {
                     self.state = KernelEngineState::S4;
                 }
-
-                // REMOVE
-                self.state = KernelEngineState::S4;
             }
 
-            KernelEngineState::S4 => {}
+            KernelEngineState::S4 => {
+                self.state = KernelEngineState::S5;
+            }
 
-            KernelEngineState::S5 => {}
+            KernelEngineState::S5 => {
+                self.state = KernelEngineState::S0;
+                self.cmd_valid = false;
+            }
         };
 
         Ok(())

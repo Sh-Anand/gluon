@@ -3,7 +3,7 @@ use crate::glug::completion::{Completion, CompletionConfig};
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
-use crate::glul::glul::{GLULConfig, GLUL};
+use crate::glul::glul::{GLULConfig, GLULStatus, GLUL};
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::toy_mem::ToyMemory;
 use serde::Deserialize;
@@ -47,24 +47,35 @@ impl GLUG {
 impl Configurable<GLUGConfig> for GLUG {
     fn new(config: GLUGConfig) -> Self {
         let glul_configs = config.gluls.clone();
-
-        let mut engine_config = config.engine.clone();
-        engine_config.kernel_engine_config.gluls = glul_configs.clone();
+        let engine_config = config.engine.clone();
 
         let dram = Arc::new(RwLock::new(ToyMemory::default()));
         let logger = Arc::new(Logger::new(config.log_level));
+
+        let gluls = glul_configs
+            .iter()
+            .copied()
+            .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), dram.clone()))
+            .collect::<Vec<_>>();
+
+        let mut engines = engine_config.generate_engines();
+        engines.iter_mut().for_each(|engine| {
+            engine.set_gluls(
+                gluls
+                    .iter()
+                    .map(|glul| glul.get_status().clone())
+                    .collect::<Vec<_>>(),
+            );
+        });
+
         GLUG {
             cmd: Command::default(),
             cmd_valid: false,
             frontend: Frontend::new(config.frontend),
             decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
-            engines: engine_config.generate_engines(),
+            engines,
             completion: Completion::new(config.completion),
-            gluls: glul_configs
-                .iter()
-                .copied()
-                .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), dram.clone()))
-                .collect(),
+            gluls,
             dram,
             logger,
         }
@@ -75,22 +86,30 @@ impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Tick completion
 
+        // Notify GLUL completions
+        self.gluls
+            .iter_mut()
+            .filter_map(|glul| glul.try_acknowledge_done())
+            .for_each(|(engine_idx, tbs)| {
+                self.engines
+                    .get_mut(engine_idx)
+                    .expect("Engine idx out of bounds")
+                    .notify_glul_done(tbs);
+            });
+
         // Service GLUL schedules
         self.engines
-            .iter()
+            .iter_mut()
             .enumerate()
-            .filter_map(|(idx, engine)| {
-                engine.get_glul_req().copied().map(|glul_if| (idx, glul_if))
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|(idx, glul_if)| {
-                self.gluls[glul_if.config.id]
-                    .submit_thread_block(glul_if.thread_block, glul_if.n_tb);
-                self.engines
-                    .get_mut(idx)
-                    .expect("Engine idx out of bounds")
-                    .clear_glul_req(glul_if.config.id);
+            .for_each(|(idx, engine)| {
+                if let Some(glul_req) = engine.get_glul_req() {
+                    self.gluls[glul_req.idx].submit_thread_block(
+                        glul_req.thread_block,
+                        glul_req.n_tb,
+                        idx,
+                    );
+                    engine.clear_glul_req();
+                }
             });
 
         // Tick GLULs
@@ -191,7 +210,7 @@ impl Clocked for GLUG {
                     self.engines
                         .get_mut(*engine_idx)
                         .expect("Engine idx must exist!")
-                        .init(*engine_cmd);
+                        .set_cmd(*engine_cmd);
                 }
             });
 

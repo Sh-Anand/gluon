@@ -1,6 +1,7 @@
 use crate::{
     common::base::{Clocked, CmdType, Configurable, SimErr},
-    glug::engine::Engine,
+    glug::engine::{Engine, EngineCommand},
+    glul::glul::GLULStatus,
 };
 use serde::Deserialize;
 
@@ -11,7 +12,7 @@ pub struct MemEngineConfig {}
 pub struct MemEngine {}
 
 impl Engine for MemEngine {
-    fn init(&mut self, cmd: crate::glug::engine::EngineCommand) {}
+    fn set_cmd(&mut self, cmd: EngineCommand) {}
 
     fn busy(&self) -> bool {
         false
@@ -31,13 +32,17 @@ impl Engine for MemEngine {
         None
     }
 
-    fn set_mem_resp(&mut self, data: Option<&Vec<u8>>) {}
+    fn set_mem_resp(&mut self, _: Option<&Vec<u8>>) {}
 
-    fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULInterface> {
+    fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULReq> {
         None
     }
 
-    fn clear_glul_req(&mut self, id: usize) {}
+    fn clear_glul_req(&mut self) {}
+
+    fn notify_glul_done(&mut self, _: u32) {}
+
+    fn set_gluls(&mut self, _: Vec<GLULStatus>) {}
 }
 
 impl Configurable<MemEngineConfig> for MemEngine {

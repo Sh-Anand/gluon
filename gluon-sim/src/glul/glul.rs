@@ -47,37 +47,29 @@ impl GLULConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct GLULInterface {
-    pub config: GLULConfig,
-    pub available_threads: usize,
+#[derive(Default, Debug, Clone, Copy)]
+pub struct GLULReq {
     pub thread_block: ThreadBlock,
     pub n_tb: u32,
+    pub idx: usize,
 }
 
-impl Default for GLULInterface {
-    fn default() -> Self {
-        let config = GLULConfig::default();
-        GLULInterface {
-            config: config,
-            available_threads: config.num_lanes * config.num_warps * config.num_cores,
-            thread_block: ThreadBlock::default(),
-            n_tb: 0,
-        }
-    }
+#[derive(Default, Debug, Clone)]
+pub struct GLULStatus {
+    pub config: GLULConfig,
+    pub busy: Arc<RwLock<bool>>,
 }
 
-impl Configurable<GLULConfig> for GLULInterface {
+impl Configurable<GLULConfig> for GLULStatus {
     fn new(config: GLULConfig) -> Self {
-        GLULInterface {
+        GLULStatus {
             config,
-            available_threads: config.num_lanes * config.num_warps * config.num_cores,
-            thread_block: ThreadBlock::default(),
-            n_tb: 0,
+            busy: Arc::new(RwLock::new(false)),
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GLULState {
     S0,
     S1,
@@ -86,8 +78,7 @@ pub enum GLULState {
 }
 
 pub struct GLUL {
-    num_free_cores: usize,
-    config: GLULConfig,
+    status: GLULStatus,
     cores: Vec<MuonCore>,
     neutrino: Neutrino,
     dram: Arc<RwLock<ToyMemory>>,
@@ -96,6 +87,9 @@ pub struct GLUL {
     state: GLULState,
     thread_block: ThreadBlock,
     n_tb: u32,
+    engine_idx: usize,
+
+    done: bool,
 }
 
 impl Configurable<GLULConfig> for GLUL {
@@ -109,8 +103,7 @@ impl Configurable<GLULConfig> for GLUL {
         let logger = Arc::new(Logger::new(0));
         let dram = Arc::new(RwLock::new(ToyMemory::default()));
         GLUL {
-            num_free_cores: config.num_cores,
-            config,
+            status: GLULStatus::new(config),
             cores: (0..config.num_cores)
                 .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
                 .collect(),
@@ -120,6 +113,8 @@ impl Configurable<GLULConfig> for GLUL {
             state: GLULState::S0,
             thread_block: ThreadBlock::default(),
             n_tb: 0,
+            engine_idx: 0,
+            done: false,
         }
     }
 }
@@ -132,9 +127,9 @@ impl Clocked for GLUL {
                 let threads_per_tb = self.thread_block.dim.0 as u32
                     * self.thread_block.dim.1 as u32
                     * self.thread_block.dim.2 as u32;
-                let warps_per_tb = threads_per_tb / self.config.num_lanes as u32;
-                let warps_per_core = (warps_per_tb / self.config.num_cores as u32).max(1);
-                let cores_per_tb = self.config.num_cores / self.n_tb as usize;
+                let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
+                let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
+                let cores_per_tb = self.status.config.num_cores / self.n_tb as usize;
                 println!(
                     "Threads per TB: {}, Warps per TB: {}, Warps per Core: {}, Cores per TB: {}",
                     threads_per_tb, warps_per_tb, warps_per_core, cores_per_tb
@@ -166,7 +161,9 @@ impl Clocked for GLUL {
                 }
             }
             GLULState::S3 => {
+                self.done = true;
                 self.state = GLULState::S0;
+                *self.status.busy.write().expect("GLUL busy poisoned") = false;
             }
         };
 
@@ -174,7 +171,7 @@ impl Clocked for GLUL {
     }
 
     fn busy(&mut self) -> bool {
-        self.num_free_cores == 0
+        self.state != GLULState::S0
     }
 }
 
@@ -191,8 +188,7 @@ impl GLUL {
             lane_config: LaneConfig::default(),
         };
         GLUL {
-            num_free_cores: config.num_cores,
-            config,
+            status: GLULStatus::new(config),
             cores: (0..config.num_cores)
                 .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
                 .collect(),
@@ -202,13 +198,15 @@ impl GLUL {
             state: GLULState::S0,
             thread_block: ThreadBlock::default(),
             n_tb: 0,
+            engine_idx: 0,
+            done: false,
         }
     }
 
-    pub fn submit_thread_block(&mut self, thread_block: ThreadBlock, n_tb: u32) {
+    pub fn submit_thread_block(&mut self, thread_block: ThreadBlock, n_tb: u32, engine_idx: usize) {
         println!(
             "Submitting {} thread blocks {:?} to GLUL {:?}",
-            n_tb, thread_block, self.config
+            n_tb, thread_block, self.status.config
         );
         let mut dram = self.dram.write().expect("gmem poisoned");
         let pc = thread_block.pc as usize;
@@ -224,6 +222,21 @@ impl GLUL {
         });
         self.thread_block = thread_block;
         self.n_tb = n_tb;
+        self.engine_idx = engine_idx;
         self.state = GLULState::S1;
+        *self.status.busy.write().expect("GLUL busy poisoned") = true;
+    }
+
+    pub fn try_acknowledge_done(&mut self) -> Option<(usize, u32)> {
+        if self.done {
+            self.done = false;
+            Some((self.engine_idx, self.n_tb))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_status(&self) -> &GLULStatus {
+        &self.status
     }
 }
