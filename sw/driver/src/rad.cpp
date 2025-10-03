@@ -368,10 +368,6 @@ extern "C" void radKernelLaunch(const char *kernel_name,
                                  radDim3 block_dim) {
     if (!kernel_name)
         return;
-    if (!rad::IsConnectionReady()) {
-        fprintf(stderr, "radKernelLaunch: connection not initialized\n");
-        return;
-    }
     auto kernel_binary = rad_build_kernel_binary(kernel_name);
     if (!kernel_binary)
         return;

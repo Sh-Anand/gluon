@@ -16,12 +16,6 @@ struct KernelLaunchHeader {
     std::uint32_t gpu_addr;
 };
 
-bool InitConnection(std::size_t shared_mem_bytes = 1 << 20,
-                    std::uint32_t gpu_addr = 0);
-void ShutdownConnection();
-bool IsConnectionReady();
-std::uint32_t GetGpuAddress();
-
 std::optional<std::string> SubmitKernelLaunch(const KernelLaunchHeader& header,
                                               const std::vector<std::uint8_t>& payload);
 

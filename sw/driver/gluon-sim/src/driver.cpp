@@ -260,20 +260,14 @@ bool InitConnection(std::size_t shared_mem_bytes, std::uint32_t gpu_addr) {
     return true;
 }
 
-bool IsConnectionReady() {
-    return GetState().initialized;
-}
-
-std::uint32_t GetGpuAddress() {
-    return GetState().gpu_addr;
-}
-
 std::optional<std::string> SubmitKernelLaunch(const KernelLaunchHeader& header,
                                               const std::vector<std::uint8_t>& payload) {
     ConnectionState& state = GetState();
     if (!state.initialized) {
-        std::cerr << "Kernel launch attempted before initializing connection\n";
-        return std::nullopt;
+        if (!InitConnection(1 << 20, 0)) {
+            std::cerr << "Failed to initialize connection\n";
+            return std::nullopt;
+        }
     }
     if (header.payload_size != payload.size()) {
         std::cerr << "Kernel payload size mismatch\n";
