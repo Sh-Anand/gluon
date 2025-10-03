@@ -62,7 +62,7 @@ $(DEVICE_OBJ): $(DEVICE_BC)
 		$< $@
 
 $(HOST_BIN): $(HOST_SRCS) $(DEVICE_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
-	$(HOST_CLANG) -std=c++17 -I../driver -I../driver/include -I../driver/gluon-sim/include \
+	$(HOST_CLANG) -std=c++17 -I../driver -I../driver/include \
 		-idirafter $(LLVM_INCLUDE_DIR) \
 		-D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp $(DEVICE_OBJ) -o $@ \

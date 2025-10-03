@@ -1,7 +1,7 @@
 CARGO ?= cargo
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
-CPPFLAGS ?= -I sw/driver -I sw/driver/include -I sw/driver/gluon-sim/include
+CPPFLAGS ?= -I sw/driver -I sw/driver/include
 
 DEFAULT_TEST := hello
 TEST ?= $(DEFAULT_TEST)

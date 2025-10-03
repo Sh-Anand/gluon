@@ -1,4 +1,4 @@
-#include "rad_driver.h"
+#include "driver.h"
 
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -47,7 +47,7 @@ struct ConnectionState {
     bool initialized = false;
     int sock = -1;
     SharedMemoryRegion shared;
-    std::uint32_t gpu_addr = 0;
+std::uint32_t gpu_addr = 0;
 };
 
 ConnectionState& GetState() {

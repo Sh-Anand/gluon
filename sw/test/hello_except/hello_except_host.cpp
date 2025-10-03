@@ -1,6 +1,6 @@
 #include <cstdio>
 #include "rad.h"
-#include "rad_driver.h"
+#include "driver.h"
 
 int main() {
     printf("Launching kernel\n");

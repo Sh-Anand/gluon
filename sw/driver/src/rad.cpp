@@ -1,5 +1,5 @@
 #include "rad.h"
-#include "rad_driver.h"
+#include "driver.h"
 
 #include <errno.h>
 #include <cstdint>
@@ -345,6 +345,24 @@ static std::optional<KernelBinary> rad_build_kernel_binary(const char *kernel_na
     return output;
 }
 
+namespace {
+
+std::optional<std::uint32_t> AllocateDeviceMemory(std::size_t bytes) {
+    static std::uint64_t used = 0;
+    static const std::uint64_t capacity = static_cast<std::uint64_t>(RAD_GPU_DRAM_SIZE);
+    if (used > capacity) {
+        return std::nullopt;
+    }
+    if (bytes > capacity - used) {
+        return std::nullopt;
+    }
+    std::uint32_t addr = static_cast<std::uint32_t>(used);
+    used += bytes;
+    return addr;
+}
+
+}
+
 extern "C" void radKernelLaunch(const char *kernel_name,
                                  radDim3 grid_dim,
                                  radDim3 block_dim) {
@@ -407,13 +425,27 @@ extern "C" void radKernelLaunch(const char *kernel_name,
     header.command_id = 0;
     header.host_offset = 0;
     header.payload_size = static_cast<std::uint32_t>(payload.size());
-    std::uint32_t gpu_addr = rad::GetGpuAddress();
-    if (gpu_addr == 0) {
-        gpu_addr = 0x8000;
+    auto device_addr = AllocateDeviceMemory(payload.size());
+    if (!device_addr) {
+        fprintf(stderr, "radKernelLaunch: failed to allocate device memory\n");
+        return;
     }
-    header.gpu_addr = gpu_addr;
+    header.gpu_addr = *device_addr;
     auto response = rad::SubmitKernelLaunch(header, payload);
     if (!response) {
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
     }
+}
+
+extern "C" void radMalloc(void **ptr, size_t bytes) {
+    if (!ptr) {
+        return;
+    }
+    auto device_addr = AllocateDeviceMemory(bytes);
+    if (!device_addr) {
+        *ptr = nullptr;
+        return;
+    }
+    std::uintptr_t value = static_cast<std::uintptr_t>(*device_addr);
+    *ptr = reinterpret_cast<void *>(value);
 }

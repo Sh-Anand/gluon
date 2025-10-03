@@ -1,5 +1,5 @@
-#ifndef RAD_DRIVER_H
-#define RAD_DRIVER_H
+#ifndef DRIVER_H
+#define DRIVER_H
 
 #include <cstddef>
 #include <cstdint>
@@ -17,7 +17,7 @@ struct KernelLaunchHeader {
 };
 
 bool InitConnection(std::size_t shared_mem_bytes = 1 << 20,
-                    std::uint32_t gpu_addr = 0x8000);
+                    std::uint32_t gpu_addr = 0);
 void ShutdownConnection();
 bool IsConnectionReady();
 std::uint32_t GetGpuAddress();
