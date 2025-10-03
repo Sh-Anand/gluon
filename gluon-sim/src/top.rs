@@ -1,4 +1,4 @@
-use crate::common::base::{Clocked, Command, Configurable, SimErr};
+use crate::common::base::{Clocked, Command, Configurable, Event, SimErr};
 use crate::glug::glug::{GLUGConfig, GLUG};
 use serde::Deserialize;
 
@@ -46,6 +46,10 @@ impl Top {
 
     pub fn submit_command(&mut self, command: Command) {
         self.glug.submit_command(command);
+    }
+
+    pub fn get_completion(&mut self) -> Option<Event> {
+        self.glug.get_completion()
     }
 
     pub fn cycles_elapsed(&self) -> u64 {

@@ -1,16 +1,17 @@
 use std::iter::repeat_with;
 
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, MemReq};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, Event, MemReq};
 use crate::glug::engines::{
     cs_engine::{CSEngine, CSEngineConfig},
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
 use crate::glul::glul::{GLULReq, GLULStatus};
+use cyclotron::muon::warp::ExecErr;
 use serde::Deserialize;
 
 pub trait Engine: Clocked + Send {
-    fn set_cmd(&mut self, cmd: EngineCommand);
+    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize);
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
     fn set_gluls(&mut self, gluls: Vec<GLULStatus>);
@@ -21,6 +22,8 @@ pub trait Engine: Clocked + Send {
     fn get_glul_req(&self) -> Option<&GLULReq>;
     fn clear_glul_req(&mut self);
     fn notify_glul_done(&mut self, tbs: u32);
+    fn notify_glul_err(&mut self, err: ExecErr);
+    fn get_completion(&self) -> Option<(Event, usize)>;
 }
 
 #[derive(Debug, Clone, Deserialize)]

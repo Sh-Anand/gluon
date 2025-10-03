@@ -1,9 +1,10 @@
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMADir, SimErr};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMADir, Event, SimErr};
 use crate::glug::completion::{Completion, CompletionConfig};
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
-use crate::glul::glul::{GLULConfig, GLULStatus, GLUL};
+use crate::glul::glul::{GLULConfig, GLUL};
+use cyclotron::info;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::toy_mem::ToyMemory;
 use serde::Deserialize;
@@ -41,6 +42,10 @@ impl GLUG {
     pub fn submit_command(&mut self, command: Command) {
         self.cmd_valid = true;
         self.cmd = command;
+    }
+
+    pub fn get_completion(&mut self) -> Option<Event> {
+        self.completion.pop_completion()
     }
 }
 
@@ -84,18 +89,37 @@ impl Configurable<GLUGConfig> for GLUG {
 
 impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
-        // TODO: Tick completion
+        // TODO: Report erroring threadid
 
-        // Notify GLUL completions
+        // Check GLUL completions, notify engines of completion or error, terminate GLULs of erroring engines
         self.gluls
             .iter_mut()
-            .filter_map(|glul| glul.try_acknowledge_done())
-            .for_each(|(engine_idx, tbs)| {
-                self.engines
-                    .get_mut(engine_idx)
-                    .expect("Engine idx out of bounds")
-                    .notify_glul_done(tbs);
+            .filter_map(|glul| glul.try_acknowledge_done_err())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .for_each(|result| {
+                if let Ok((engine_idx, tbs)) = result {
+                    self.engines
+                        .get_mut(engine_idx)
+                        .expect("Engine idx out of bounds")
+                        .notify_glul_done(tbs);
+                } else if let Err((engine_idx, err)) = result {
+                    self.engines
+                        .get_mut(engine_idx)
+                        .expect("Engine idx out of bounds")
+                        .notify_glul_err(err);
+                    self.gluls
+                        .iter_mut()
+                        .for_each(|glul| glul.try_kill(engine_idx));
+                }
             });
+
+        // Enqueue engine completions
+        self.engines.iter_mut().for_each(|engine| {
+            if let Some((event, completion_idx)) = engine.get_completion() {
+                self.completion.set(completion_idx, event);
+            }
+        });
 
         // Service GLUL schedules
         self.engines
@@ -123,7 +147,7 @@ impl Clocked for GLUG {
         {
             let mem_req = engine.get_mem_req().expect("Mem: unreachable");
             let mut dram = self.dram.write().expect("gmem poisoned");
-            println!("Served mem {:?}", mem_req);
+            info!(self.logger, "Served mem {:?}", mem_req);
             if mem_req.write {
                 mem_req.data.iter().enumerate().for_each(|(idx, byte)| {
                     dram.write_byte((mem_req.addr + idx as u32) as usize, *byte)
@@ -141,7 +165,6 @@ impl Clocked for GLUG {
                         .collect::<Vec<u8>>()
                 };
                 engine.set_mem_resp(Some(&read_data));
-                println!("Served mem");
             }
         }
 
@@ -206,17 +229,17 @@ impl Clocked for GLUG {
             .collect::<Vec<_>>()
             .iter()
             .for_each(|x| {
-                if let (Some(engine_cmd), Some(engine_idx)) = x {
+                if let (Some((engine_cmd, completion_idx)), Some(engine_idx)) = x {
                     self.engines
                         .get_mut(*engine_idx)
                         .expect("Engine idx must exist!")
-                        .set_cmd(*engine_cmd);
+                        .set_cmd(*engine_cmd, *completion_idx);
                 }
             });
 
         // Tick frontend
         if self.cmd_valid && self.frontend.command_queue.push(self.cmd) {
-            println!("Pushed {:?} to command queue", self.cmd);
+            info!(self.logger, "Pushed {:?} to command queue", self.cmd);
             self.cmd_valid = false;
             self.cmd = Command::default();
         }
@@ -237,8 +260,9 @@ impl Clocked for GLUG {
                     .expect("Cannot be empty here")
             })
         {
-            self.decode_dispatch.enqueue(frontend_out_cmd);
-            // TODO create completion
+            let completion_idx = self.completion.allocate();
+            self.decode_dispatch
+                .enqueue(frontend_out_cmd, completion_idx);
         }
 
         Ok(())

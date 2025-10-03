@@ -1,8 +1,9 @@
 use crate::{
-    common::base::{Clocked, CmdType, Configurable, SimErr},
+    common::base::{Clocked, CmdType, Configurable, Event, SimErr},
     glug::engine::{Engine, EngineCommand},
     glul::glul::GLULStatus,
 };
+use cyclotron::muon::warp::ExecErr;
 use serde::Deserialize;
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -12,7 +13,7 @@ pub struct MemEngineConfig {}
 pub struct MemEngine {}
 
 impl Engine for MemEngine {
-    fn set_cmd(&mut self, cmd: EngineCommand) {}
+    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize) {}
 
     fn busy(&self) -> bool {
         false
@@ -43,6 +44,12 @@ impl Engine for MemEngine {
     fn notify_glul_done(&mut self, _: u32) {}
 
     fn set_gluls(&mut self, _: Vec<GLULStatus>) {}
+
+    fn notify_glul_err(&mut self, _: ExecErr) {}
+
+    fn get_completion(&self) -> Option<(Event, usize)> {
+        None
+    }
 }
 
 impl Configurable<MemEngineConfig> for MemEngine {

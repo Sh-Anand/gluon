@@ -280,6 +280,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
             (state, cycles)
         };
 
+        let completion = {
+            let mut top_guard = top_for_tick.blocking_lock();
+            top_guard.get_completion()
+        };
+
+        if let Some(completion) = completion {
+            println!("Completion: {:?}", completion);
+        }
+
         if sim_err.is_err() {
             break (sim_err, cycles);
         }

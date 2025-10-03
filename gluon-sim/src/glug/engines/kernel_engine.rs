@@ -2,6 +2,7 @@ use crate::common::base::Clocked;
 use crate::common::base::Configurable;
 use crate::common::base::DMADir;
 use crate::common::base::DMAReq;
+use crate::common::base::Event;
 use crate::common::base::MemReq;
 use crate::common::base::MemResp;
 use crate::common::base::SimErr;
@@ -10,10 +11,9 @@ use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
 use crate::glul::glul::GLULReq;
 use crate::glul::glul::GLULStatus;
+use cyclotron::muon::warp::ExecErr;
 use serde::Deserialize;
 use std::fmt;
-use std::sync::Arc;
-use std::sync::RwLock;
 
 pub enum KernelEngineState {
     S0,
@@ -123,11 +123,9 @@ impl KernelPayload {
 }
 
 pub struct KernelEngine {
-    cmd: KernelCommand,
-    cmd_valid: bool,
+    cmd: Option<(KernelCommand, usize)>, // (command, completion idx)
 
     dma_req: DMAReq,
-
     mem_req: MemReq,
     mem_resp: MemResp,
 
@@ -138,13 +136,14 @@ pub struct KernelEngine {
 
     gluls: Vec<GLULStatus>,
     glul_req: GLULReq,
+
+    err: Option<Result<(), ExecErr>>,
 }
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
     fn new(_config: KernelEngineConfig) -> Self {
         KernelEngine {
-            cmd: KernelCommand::default(),
-            cmd_valid: false,
+            cmd: None,
             dma_req: DMAReq::default(),
             mem_req: MemReq::default(),
             mem_resp: MemResp::default(),
@@ -154,14 +153,14 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             tb_done: 0,
             gluls: vec![],
             glul_req: GLULReq::default(),
+            err: None,
         }
     }
 }
 
 impl Engine for KernelEngine {
-    fn set_cmd(&mut self, cmd: EngineCommand) {
-        self.cmd_valid = true;
-        self.cmd = KernelCommand::from_engine_cmd(cmd);
+    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize) {
+        self.cmd = Some((KernelCommand::from_engine_cmd(cmd), completion_idx));
     }
 
     fn busy(&self) -> bool {
@@ -170,6 +169,10 @@ impl Engine for KernelEngine {
 
     fn cmd_type(&self) -> crate::common::base::CmdType {
         crate::common::base::CmdType::KERNEL
+    }
+
+    fn set_gluls(&mut self, gluls: Vec<GLULStatus>) {
+        self.gluls = gluls
     }
 
     fn get_dma_req(&self) -> Option<&DMAReq> {
@@ -219,8 +222,31 @@ impl Engine for KernelEngine {
         self.tb_done += tbs;
     }
 
-    fn set_gluls(&mut self, gluls: Vec<GLULStatus>) {
-        self.gluls = gluls
+    fn notify_glul_err(&mut self, err: ExecErr) {
+        assert_ne!(self.total_tb, 0);
+        assert_ne!(self.tb_ctr, 0);
+        self.state = KernelEngineState::S5;
+        self.err = Some(Err(err));
+    }
+
+    fn get_completion(&self) -> Option<(Event, usize)> {
+        self.err
+            .as_ref()
+            .map(|err| {
+                Event::from_kernel_err(
+                    self.cmd
+                        .expect("Command not set, no completion exists")
+                        .0
+                        .id,
+                    err.clone(),
+                )
+            })
+            .map(|event| {
+                (
+                    event,
+                    self.cmd.expect("Command not set, no completion exists").1,
+                )
+            })
     }
 }
 
@@ -228,12 +254,12 @@ impl Clocked for KernelEngine {
     fn tick(&mut self) -> Result<(), SimErr> {
         match &self.state {
             KernelEngineState::S0 => {
-                if self.cmd_valid {
+                if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
                     self.tb_ctr = 0;
                     println!(
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
-                        self.cmd.id, self.cmd.host_addr, self.cmd.sz, self.cmd.gpu_addr
+                        cmd.0.id, cmd.0.host_addr, cmd.0.sz, cmd.0.gpu_addr
                     );
                 }
             }
@@ -247,10 +273,18 @@ impl Clocked for KernelEngine {
                 } else {
                     self.dma_req.valid = true;
                     self.dma_req.dir = DMADir::H2D;
-                    self.dma_req.src_addr = self.cmd.host_addr;
-                    self.dma_req.target_addr = self.cmd.gpu_addr;
-                    self.dma_req.sz = self.cmd.sz;
-                    println!("queues {:?}", self.dma_req);
+                    self.dma_req.src_addr = self
+                        .cmd
+                        .expect("Unreachable:Kernel command not set")
+                        .0
+                        .host_addr;
+                    self.dma_req.target_addr = self
+                        .cmd
+                        .expect("Unreachable:Kernel command not set")
+                        .0
+                        .gpu_addr;
+                    self.dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").0.sz;
+                    println!("Kernel engine DMA req: {:?}", self.dma_req);
                 }
             }
 
@@ -264,7 +298,11 @@ impl Clocked for KernelEngine {
                 } else {
                     self.mem_req.valid = true;
                     self.mem_req.write = false;
-                    self.mem_req.addr = self.cmd.gpu_addr;
+                    self.mem_req.addr = self
+                        .cmd
+                        .expect("Unreachable:Kernel command not set")
+                        .0
+                        .gpu_addr;
                     self.mem_req.bytes = size_of::<KernelPayload>() as u32;
                     println!("Queued mem {:?}", self.mem_req);
                 }
@@ -308,7 +346,11 @@ impl Clocked for KernelEngine {
                         self.glul_req.n_tb = (n_tb as u32).min(available_tbs);
                         self.glul_req.thread_block = ThreadBlock {
                             id: self.tb_ctr,
-                            pc: self.cmd.gpu_addr
+                            pc: self
+                                .cmd
+                                .expect("Unreachable:Kernel command not set")
+                                .0
+                                .gpu_addr
                                 + size_of::<KernelPayload>() as u32
                                 + kernel_payload.entry_pc,
                             dim: kernel_payload.block,
@@ -328,11 +370,13 @@ impl Clocked for KernelEngine {
 
             KernelEngineState::S4 => {
                 self.state = KernelEngineState::S5;
+                self.err = Some(Ok(()));
             }
 
             KernelEngineState::S5 => {
                 self.state = KernelEngineState::S0;
-                self.cmd_valid = false;
+                self.cmd = None;
+                self.err = None;
             }
         };
 

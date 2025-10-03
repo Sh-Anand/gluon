@@ -27,7 +27,7 @@ impl Default for DecodeDispatchConfig {
 
 #[derive(Debug, Default, Clone)]
 pub struct EngineQueue {
-    pub q: Queue<EngineCommand>,
+    pub q: Queue<(EngineCommand, usize)>, // (command, completion idx)
     pub engine_type: CmdType,
 }
 
@@ -64,13 +64,15 @@ impl DecodeDispatch {
             .any(|eq| !eq.q.full())
     }
 
-    pub fn enqueue(&mut self, cmd: Command) {
+    pub fn enqueue(&mut self, cmd: Command, completion_idx: usize) {
         if let Some(engine_queue) = self
             .qs
             .iter_mut()
             .find(|eq| eq.engine_type == cmd.cmd_type() && !eq.q.full())
         {
-            engine_queue.q.push(EngineCommand::from_command(cmd));
+            engine_queue
+                .q
+                .push((EngineCommand::from_command(cmd), completion_idx));
         }
     }
 }

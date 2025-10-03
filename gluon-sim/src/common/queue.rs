@@ -41,4 +41,12 @@ impl<T: Default> Queue<T> {
     pub fn peek(&mut self) -> Option<&T> {
         self.data.front()
     }
+
+    pub fn get_mut(&mut self, idx: usize) -> Option<&mut T> {
+        self.data.get_mut(idx)
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
 }

@@ -18,7 +18,7 @@ impl Default for CompletionConfig {
     }
 }
 pub struct Completion {
-    pub eq: Queue<Event>,
+    pub eq: Queue<(Event, bool)>,
 }
 
 impl Configurable<CompletionConfig> for Completion {
@@ -26,5 +26,26 @@ impl Configurable<CompletionConfig> for Completion {
         Completion {
             eq: Queue::new(config.event_queue_size),
         }
+    }
+}
+
+impl Completion {
+    // enqueue and return idx
+    pub fn allocate(&mut self) -> usize {
+        self.eq.push((Event::default(), false));
+        self.eq.len() - 1
+    }
+
+    pub fn set(&mut self, idx: usize, event: Event) {
+        let (evnt, done) = self.eq.get_mut(idx).expect("completion idx out of bounds");
+        *evnt = event;
+        *done = true;
+    }
+
+    pub fn pop_completion(&mut self) -> Option<Event> {
+        if let Some((_, true)) = self.eq.peek() {
+            return self.eq.pop().map(|(event, _)| event);
+        }
+        None
     }
 }

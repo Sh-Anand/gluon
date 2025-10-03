@@ -2,10 +2,11 @@ use std::sync::{Arc, RwLock};
 
 use cyclotron::{
     base::behavior::ModuleBehaviors,
-    base::mem::HasMemory,
+    info,
     muon::{
         config::{LaneConfig, MuonConfig},
         core::MuonCore,
+        warp::ExecErr,
     },
     neutrino::{config::NeutrinoConfig, neutrino::Neutrino},
     sim::{log::Logger, toy_mem::ToyMemory},
@@ -90,6 +91,7 @@ pub struct GLUL {
     engine_idx: usize,
 
     done: bool,
+    err: Result<(), ExecErr>,
 }
 
 impl Configurable<GLULConfig> for GLUL {
@@ -115,6 +117,7 @@ impl Configurable<GLULConfig> for GLUL {
             n_tb: 0,
             engine_idx: 0,
             done: false,
+            err: Ok(()),
         }
     }
 }
@@ -122,7 +125,15 @@ impl Configurable<GLULConfig> for GLUL {
 impl Clocked for GLUL {
     fn tick(&mut self) -> Result<(), SimErr> {
         match self.state {
-            GLULState::S0 => {}
+            GLULState::S0 => {
+                if self.n_tb > 0 {
+                    *self.status.busy.write().expect("GLUL busy poisoned") = true;
+                    self.done = false;
+                    self.cores.iter_mut().for_each(|core| core.reset());
+                    self.neutrino.reset();
+                    self.state = GLULState::S1;
+                }
+            }
             GLULState::S1 => {
                 let threads_per_tb = self.thread_block.dim.0 as u32
                     * self.thread_block.dim.1 as u32
@@ -130,14 +141,9 @@ impl Clocked for GLUL {
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
                 let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
                 let cores_per_tb = self.status.config.num_cores / self.n_tb as usize;
-                println!(
-                    "Threads per TB: {}, Warps per TB: {}, Warps per Core: {}, Cores per TB: {}",
-                    threads_per_tb, warps_per_tb, warps_per_core, cores_per_tb
-                );
                 (0..self.n_tb).for_each(|tb_idx| {
                     let core_start = tb_idx * cores_per_tb as u32;
                     let core_end = core_start + cores_per_tb as u32;
-                    println!("Core start: {}, Core end: {}", core_start, core_end);
                     (core_start..core_end).for_each(|core_idx| {
                         self.cores
                             .get_mut(core_idx as usize)
@@ -150,13 +156,17 @@ impl Clocked for GLUL {
             GLULState::S2 => {
                 self.cores.iter_mut().for_each(|core| {
                     core.tick_one();
-                    core.execute(&mut self.neutrino);
+                    if let Err(e) = core.execute(&mut self.neutrino) {
+                        self.err = Err(e);
+                        self.state = GLULState::S3;
+                    }
                 });
                 self.neutrino.tick_one();
                 self.neutrino
                     .update(&mut self.cores.iter_mut().map(|c| &mut c.scheduler).collect());
 
                 if self.cores.iter().all(|core| core.all_warps_retired()) {
+                    self.err = Ok(());
                     self.state = GLULState::S3;
                 }
             }
@@ -200,39 +210,42 @@ impl GLUL {
             n_tb: 0,
             engine_idx: 0,
             done: false,
+            err: Ok(()),
         }
     }
 
     pub fn submit_thread_block(&mut self, thread_block: ThreadBlock, n_tb: u32, engine_idx: usize) {
-        println!(
-            "Submitting {} thread blocks {:?} to GLUL {:?}",
-            n_tb, thread_block, self.status.config
+        info!(
+            self.logger,
+            "Submitting {} thread blocks {:?} to GLUL {:?}", n_tb, thread_block, self.status.config
         );
-        let mut dram = self.dram.write().expect("gmem poisoned");
-        let pc = thread_block.pc as usize;
-        (0..8).for_each(|idx| {
-            let addr = pc + idx * 8;
-            let instr = dram.read::<8>(addr).expect("instruction read failed");
-            let bytes = instr
-                .iter()
-                .map(|byte| format!("{:02x}", byte))
-                .collect::<Vec<_>>()
-                .join("");
-            println!("PC 0x{:08x}: {}", addr, bytes);
-        });
         self.thread_block = thread_block;
         self.n_tb = n_tb;
         self.engine_idx = engine_idx;
         self.state = GLULState::S1;
-        *self.status.busy.write().expect("GLUL busy poisoned") = true;
     }
 
-    pub fn try_acknowledge_done(&mut self) -> Option<(usize, u32)> {
+    pub fn try_acknowledge_done_err(&mut self) -> Option<Result<(usize, u32), (usize, ExecErr)>> {
         if self.done {
             self.done = false;
-            Some((self.engine_idx, self.n_tb))
+            let n_tb = self.n_tb;
+            self.n_tb = 0;
+            Some(
+                self.err
+                    .clone()
+                    .map(|()| (self.engine_idx, n_tb))
+                    .map_err(|e| (self.engine_idx, e)),
+            )
         } else {
             None
+        }
+    }
+
+    pub fn try_kill(&mut self, engine_idx: usize) {
+        if self.state != GLULState::S0 && self.engine_idx == engine_idx {
+            self.done = false;
+            self.state = GLULState::S0;
+            *self.status.busy.write().expect("GLUL busy poisoned") = false;
         }
     }
 
