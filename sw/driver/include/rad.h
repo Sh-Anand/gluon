@@ -1,13 +1,15 @@
 #ifndef RADIANCE_DRIVER_H
 #define RADIANCE_DRIVER_H
 
-#include <stddef.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
-#define RAD_GPU_DRAM_SIZE (512u * 1024u * 1024u)
+#include <type_traits>
+#include <vector>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#include "rad_defs.h"
+
 
 typedef struct {
     unsigned int x;
@@ -15,12 +17,43 @@ typedef struct {
     unsigned int z;
 } radDim3;
 
-void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim);
+struct radParamBuf {
+    std::vector<std::uint8_t> storage;
+    std::size_t offset = 0;
+
+    void reset() {
+        storage.clear();
+        offset = 0;
+    }
+
+    template <class T>
+    void push(const T& value) {
+        static_assert(std::is_trivially_copyable<T>::value,
+                      "radParamBuf::push requires trivially copyable types");
+        constexpr std::size_t alignment = alignof(T);
+        constexpr std::size_t size = sizeof(T);
+        if (alignment > 1) {
+            offset = (offset + (alignment - 1)) & ~(alignment - 1);
+        }
+        std::size_t end = offset + size;
+        if (storage.size() < end) {
+            storage.resize(end);
+        }
+        std::memcpy(storage.data() + offset, &value, size);
+        offset = end;
+    }
+
+    const std::uint8_t* data() const {
+        return storage.empty() ? nullptr : storage.data();
+    }
+
+    std::size_t size() const {
+        return offset;
+    }
+};
+
+void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params);
 
 void radMalloc(void **ptr, size_t bytes);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif  // RADIANCE_DRIVER_H

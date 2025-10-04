@@ -18,7 +18,6 @@
 #include <memory>
 #include <optional>
 #include <string>
-#include <vector>
 
 #include <llvm-c/Analysis.h>
 #include <llvm-c/BitReader.h>
@@ -363,9 +362,10 @@ std::optional<std::uint32_t> AllocateDeviceMemory(std::size_t bytes) {
 
 }
 
-extern "C" void radKernelLaunch(const char *kernel_name,
+void radKernelLaunch(const char *kernel_name,
                                  radDim3 grid_dim,
-                                 radDim3 block_dim) {
+                                 radDim3 block_dim,
+                                 radParamBuf* params) {
     if (!kernel_name)
         return;
     auto kernel_binary = rad_build_kernel_binary(kernel_name);
@@ -383,8 +383,24 @@ extern "C" void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: binary too large\n");
         return;
     }
+    std::size_t params_size = 0;
+    const std::uint8_t* params_data = nullptr;
+    if (params) {
+        params_size = params->size();
+        if (params_size > 0) {
+            params_data = params->data();
+        }
+    }
+    if (params_size > UINT32_MAX) {
+        fprintf(stderr, "radKernelLaunch: parameter payload too large\n");
+        return;
+    }
+    if (params_size > 0 && !params_data) {
+        fprintf(stderr, "radKernelLaunch: parameter buffer missing data pointer\n");
+        return;
+    }
     std::vector<std::uint8_t> payload;
-    payload.reserve(36 + kernel_binary->image.size());
+    payload.reserve(RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->image.size());
     const auto push_u32 = [&payload](std::uint32_t value) {
         payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
@@ -405,13 +421,16 @@ extern "C" void radKernelLaunch(const char *kernel_name,
     push_u16(static_cast<std::uint16_t>(block_dim.x));
     push_u16(static_cast<std::uint16_t>(block_dim.y));
     push_u16(static_cast<std::uint16_t>(block_dim.z));
-    push_u8(1);
-    push_u32(1);
-    push_u8(0);
-    push_u32(0);
+    push_u8(RAD_KERNEL_REGS_PER_THREAD);
+    push_u32(RAD_KERNEL_SMEM_PER_BLOCK);
+    push_u8(RAD_KERNEL_FLAGS);
+    push_u32(RAD_KERNEL_PRINTF_HOST_ADDR);
+    push_u32(static_cast<std::uint32_t>(params_size));
     push_u32(static_cast<std::uint32_t>(kernel_binary->image.size()));
-    push_u32(0);
-    push_u16(0);
+    push_u16(RAD_KERNEL_RESERVED_U16);
+    if (params_size > 0) {
+        payload.insert(payload.end(), params_data, params_data + params_size);
+    }
     payload.insert(payload.end(), kernel_binary->image.begin(), kernel_binary->image.end());
     if (payload.size() > UINT32_MAX) {
         fprintf(stderr, "radKernelLaunch: payload too large\n");
@@ -433,7 +452,7 @@ extern "C" void radKernelLaunch(const char *kernel_name,
     }
 }
 
-extern "C" void radMalloc(void **ptr, size_t bytes) {
+void radMalloc(void **ptr, size_t bytes) {
     if (!ptr) {
         return;
     }

@@ -66,8 +66,8 @@ pub struct KernelPayload {
     shmem_per_block: u32,
     flags: u8,
     printf_host_addr: u32,
-    binary_sz: u32,
     params_sz: u32,
+    binary_sz: u32,
 }
 
 impl fmt::Debug for KernelPayload {
@@ -83,8 +83,8 @@ impl fmt::Debug for KernelPayload {
                 "printf_host_addr",
                 &format_args!("0x{:08x}", self.printf_host_addr),
             )
-            .field("binary_sz", &self.binary_sz)
             .field("params_sz", &self.params_sz)
+            .field("binary_sz", &self.binary_sz)
             .finish()
     }
 }
@@ -106,8 +106,8 @@ impl KernelPayload {
         let shmem_per_block = u32::from_le_bytes([bytes[17], bytes[18], bytes[19], bytes[20]]);
         let flags = bytes[21];
         let printf_host_addr = u32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]);
-        let binary_sz = u32::from_le_bytes([bytes[26], bytes[27], bytes[28], bytes[29]]);
-        let params_sz = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
+        let params_sz = u32::from_le_bytes([bytes[26], bytes[27], bytes[28], bytes[29]]);
+        let binary_sz = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
         KernelPayload {
             entry_pc,
             grid,
@@ -116,8 +116,8 @@ impl KernelPayload {
             shmem_per_block,
             flags,
             printf_host_addr,
-            binary_sz,
             params_sz,
+            binary_sz,
         }
     }
 }
@@ -352,6 +352,7 @@ impl Clocked for KernelEngine {
                                 .0
                                 .gpu_addr
                                 + size_of::<KernelPayload>() as u32
+                                + kernel_payload.params_sz
                                 + kernel_payload.entry_pc,
                             dim: kernel_payload.block,
                             regs: kernel_payload.regs_per_thread as u32,

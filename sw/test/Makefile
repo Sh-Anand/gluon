@@ -47,7 +47,6 @@ $(DEVICE_BC): $(KERNEL_SRC) | $(BUILD_ROOT)
 		-march=rv32im_zfinx -mabi=ilp32 \
 		--sysroot=$(MUON_32)/riscv32-unknown-elf \
 		-I$(MUON_32)/include \
-		-I../driver/include \
 		-fPIC \
 		-O2 \
 		-Xclang -target-feature -Xclang +vortex \

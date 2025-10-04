@@ -31,10 +31,11 @@ server:
 	@$(CARGO) build --manifest-path $(RUST_MANIFEST)
 
 driver:
-	@$(MAKE) -C sw/test TEST=$(TEST)
+	@$(MAKE) -C sw/test TEST=$(TEST) CPPFLAGS=
 
 clean:
 	@$(CARGO) clean --manifest-path $(RUST_MANIFEST)
+	@rm -rf build sw/driver/gluon-sim/build gluon-sim.sock
 	@$(MAKE) -C sw/test clean
 
 list:
@@ -42,7 +43,7 @@ list:
 
 $(TEST_NAMES):
 	@set -euo pipefail; \
-	$(MAKE) -C sw/test TEST=$@; \
+	$(MAKE) -C sw/test TEST=$@ CPPFLAGS=; \
 	$(CARGO) build --manifest-path $(RUST_MANIFEST); \
 	RUST_LOG=debug $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
 	SERVER_PID=$$!; \
