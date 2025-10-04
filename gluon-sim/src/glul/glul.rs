@@ -82,7 +82,6 @@ pub struct GLUL {
     status: GLULStatus,
     cores: Vec<MuonCore>,
     neutrino: Neutrino,
-    dram: Arc<RwLock<ToyMemory>>,
     logger: Arc<Logger>,
 
     state: GLULState,
@@ -110,7 +109,6 @@ impl Configurable<GLULConfig> for GLUL {
                 .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
-            dram,
             logger,
             state: GLULState::S0,
             thread_block: ThreadBlock::default(),
@@ -203,7 +201,6 @@ impl GLUL {
                 .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
-            dram,
             logger,
             state: GLULState::S0,
             thread_block: ThreadBlock::default(),
