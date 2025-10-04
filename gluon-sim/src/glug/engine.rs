@@ -8,12 +8,15 @@ use crate::glug::engines::{
 };
 use crate::glul::glul::{GLULReq, GLULStatus};
 use cyclotron::muon::warp::ExecErr;
+use cyclotron::sim::log::Logger;
+use std::sync::Arc;
 use serde::Deserialize;
 
 pub trait Engine: Clocked + Send {
     fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize);
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
+    fn set_logger(&mut self, logger: Arc<Logger>);
     fn set_gluls(&mut self, gluls: Vec<GLULStatus>);
     fn get_dma_req(&self) -> Option<&DMAReq>;
     fn done_dma_req(&mut self);
@@ -55,8 +58,8 @@ impl EngineConfig {
         self.num_kernel_engines + self.num_mem_engines + self.num_cs_engines
     }
 
-    pub fn generate_engines(&self) -> Vec<Box<dyn Engine>> {
-        repeat_with(|| {
+    pub fn generate_engines(&self, logger: Arc<Logger>) -> Vec<Box<dyn Engine>> {
+        let mut engines: Vec<Box<dyn Engine>> = repeat_with(|| {
             Box::new(KernelEngine::new(self.kernel_engine_config.clone())) as Box<dyn Engine>
         })
         .take(self.num_kernel_engines)
@@ -68,7 +71,13 @@ impl EngineConfig {
             repeat_with(|| Box::new(CSEngine::new(self.cs_engine_config)) as Box<dyn Engine>)
                 .take(self.num_cs_engines),
         )
-        .collect()
+        .collect();
+
+        engines.iter_mut().for_each(|engine| {
+            engine.set_logger(logger.clone());
+        });
+
+        engines
     }
 }
 

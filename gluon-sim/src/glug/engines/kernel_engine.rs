@@ -11,9 +11,12 @@ use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
 use crate::glul::glul::GLULReq;
 use crate::glul::glul::GLULStatus;
+use cyclotron::info;
 use cyclotron::muon::warp::ExecErr;
+use cyclotron::sim::log::Logger;
 use serde::Deserialize;
 use std::fmt;
+use std::sync::Arc;
 
 pub enum KernelEngineState {
     S0,
@@ -138,6 +141,8 @@ pub struct KernelEngine {
     glul_req: GLULReq,
 
     err: Option<Result<(), ExecErr>>,
+
+    logger: Arc<Logger>,
 }
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
@@ -154,6 +159,7 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             gluls: vec![],
             glul_req: GLULReq::default(),
             err: None,
+            logger: Arc::new(Logger::new(0)),
         }
     }
 }
@@ -169,6 +175,10 @@ impl Engine for KernelEngine {
 
     fn cmd_type(&self) -> crate::common::base::CmdType {
         crate::common::base::CmdType::KERNEL
+    }
+
+    fn set_logger(&mut self, logger: Arc<Logger>) {
+        self.logger = logger;
     }
 
     fn set_gluls(&mut self, gluls: Vec<GLULStatus>) {
@@ -257,7 +267,8 @@ impl Clocked for KernelEngine {
                 if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
                     self.tb_ctr = 0;
-                    println!(
+                     info!(
+                        self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
                         cmd.0.id, cmd.0.host_addr, cmd.0.sz, cmd.0.gpu_addr
                     );
@@ -284,7 +295,10 @@ impl Clocked for KernelEngine {
                         .0
                         .gpu_addr;
                     self.dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").0.sz;
-                    println!("Kernel engine DMA req: {:?}", self.dma_req);
+                    info!(
+                        self.logger,
+                        "Kernel engine DMA req: {:?}", self.dma_req
+                    );
                 }
             }
 
@@ -304,7 +318,10 @@ impl Clocked for KernelEngine {
                         .0
                         .gpu_addr;
                     self.mem_req.bytes = size_of::<KernelPayload>() as u32;
-                    println!("Queued mem {:?}", self.mem_req);
+                    info!(
+                        self.logger,
+                        "Queued mem {:?}", self.mem_req
+                    );
                 }
             }
 

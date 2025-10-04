@@ -4,6 +4,8 @@ use crate::{
     glul::glul::GLULStatus,
 };
 use cyclotron::muon::warp::ExecErr;
+use cyclotron::sim::log::Logger;
+use std::sync::Arc;
 use serde::Deserialize;
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -22,6 +24,8 @@ impl Engine for MemEngine {
     fn cmd_type(&self) -> crate::common::base::CmdType {
         CmdType::MEM
     }
+
+    fn set_logger(&mut self, logger: Arc<Logger>) {}
 
     fn get_dma_req(&self) -> Option<&crate::common::base::DMAReq> {
         None
