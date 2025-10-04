@@ -80,8 +80,6 @@ pub struct DMAReq {
     pub src_addr: u32,
     pub target_addr: u32,
     pub sz: u32,
-
-    pub valid: bool,
     pub done: bool,
 }
 
@@ -91,13 +89,11 @@ pub struct MemReq {
     pub write: bool,
     pub bytes: u32,
     pub data: Vec<u8>,
-    pub valid: bool,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct MemResp {
     pub data: Vec<u8>,
-    pub valid: bool,
 }
 
 #[derive(Debug, Default, Clone, Copy)]

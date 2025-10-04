@@ -128,9 +128,9 @@ impl KernelPayload {
 pub struct KernelEngine {
     cmd: Option<(KernelCommand, usize)>, // (command, completion idx)
 
-    dma_req: DMAReq,
-    mem_req: MemReq,
-    mem_resp: MemResp,
+    dma_req: Option<DMAReq>,
+    mem_req: Option<MemReq>,
+    mem_resp: Option<MemResp>,
 
     state: KernelEngineState,
     tb_ctr: u32,
@@ -149,9 +149,9 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
     fn new(_config: KernelEngineConfig) -> Self {
         KernelEngine {
             cmd: None,
-            dma_req: DMAReq::default(),
-            mem_req: MemReq::default(),
-            mem_resp: MemResp::default(),
+            dma_req: None,
+            mem_req: None,
+            mem_resp: None,
             state: KernelEngineState::S0,
             tb_ctr: 0,
             total_tb: 0,
@@ -186,33 +186,19 @@ impl Engine for KernelEngine {
     }
 
     fn get_dma_req(&self) -> Option<&DMAReq> {
-        if self.dma_req.valid {
-            Some(&self.dma_req)
-        } else {
-            None
-        }
+        self.dma_req.as_ref()
     }
 
     fn done_dma_req(&mut self) {
-        if self.dma_req.valid {
-            self.dma_req.done = true;
-        }
+        self.dma_req.expect("Kernel engine: DMA req not set").done = true;
     }
 
     fn get_mem_req(&self) -> Option<&MemReq> {
-        if self.mem_req.valid {
-            Some(&self.mem_req)
-        } else {
-            None
-        }
+        self.mem_req.as_ref()
     }
 
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>) {
-        self.mem_resp.valid = true;
-        if let Some(bytes) = data {
-            self.mem_resp.valid = true;
-            self.mem_resp.data = bytes.clone();
-        }
+        self.mem_resp = data.map(|bytes| MemResp { data: bytes.clone() });
     }
 
     fn get_glul_req(&self) -> Option<&GLULReq> {
@@ -276,48 +262,51 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S1 => {
-                if self.dma_req.valid {
-                    if self.dma_req.done {
-                        self.dma_req.valid = false;
+                if let Some(dma_req) = &self.dma_req {
+                    if dma_req.done {
+                        self.dma_req = None;
                         self.state = KernelEngineState::S2;
                     }
                 } else {
-                    self.dma_req.valid = true;
-                    self.dma_req.dir = DMADir::H2D;
-                    self.dma_req.src_addr = self
+                    let mut dma_req = DMAReq::default();
+                    dma_req.done = true;
+                    dma_req.dir = DMADir::H2D;
+                    dma_req.src_addr = self
                         .cmd
                         .expect("Unreachable:Kernel command not set")
                         .0
                         .host_addr;
-                    self.dma_req.target_addr = self
+                    dma_req.target_addr = self
                         .cmd
                         .expect("Unreachable:Kernel command not set")
                         .0
                         .gpu_addr;
-                    self.dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").0.sz;
+                    dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").0.sz;
+                    self.dma_req = Some(dma_req);
                     info!(
                         self.logger,
-                        "Kernel engine DMA req: {:?}", self.dma_req
+                        "Kernel engine DMA req: {:?}", dma_req
                     );
                 }
             }
 
             KernelEngineState::S2 => {
-                if self.mem_req.valid {
-                    if self.mem_resp.valid {
-                        self.mem_req.valid = false;
-                        self.mem_resp.valid = false;
+                if self.mem_req.is_some() {
+                    if self.mem_resp.is_some() {
+                        self.mem_req = None;
                         self.state = KernelEngineState::S3;
                     }
                 } else {
-                    self.mem_req.valid = true;
-                    self.mem_req.write = false;
-                    self.mem_req.addr = self
-                        .cmd
-                        .expect("Unreachable:Kernel command not set")
-                        .0
-                        .gpu_addr;
-                    self.mem_req.bytes = size_of::<KernelPayload>() as u32;
+                    self.mem_req = Some(MemReq {
+                        addr: self
+                            .cmd
+                            .expect("Unreachable:Kernel command not set")
+                            .0
+                            .gpu_addr,
+                        write: false,
+                        bytes: size_of::<KernelPayload>() as u32,
+                        data: vec![],
+                    });
                     info!(
                         self.logger,
                         "Queued mem {:?}", self.mem_req
@@ -326,7 +315,7 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S3 => {
-                let kernel_payload = KernelPayload::from_bytes(&self.mem_resp.data);
+                let kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Kernel engine: Mem resp not set").data);
                 self.total_tb = kernel_payload.grid.0 as u32
                     * kernel_payload.grid.1 as u32
                     * kernel_payload.grid.2 as u32;
