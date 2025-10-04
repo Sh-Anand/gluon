@@ -10,9 +10,19 @@ Gluon is the command processor module of the radiance GPU. This repository conta
 
 Set the path to your cyclotron folder under `Cargo.toml` dependencies.
 
-`make` from the root automatically builds and runs both the driver and the gluon rust server
+`make <test_name>` from the root automatically builds and runs the test + driver and the gluon rust server
+
+`make` runs `hello` by default. `make list` prints all available tests.
 
 `cargo build` and `cargo run` from `gluon-sim/` to run just the rust server.
+
+# Adding tests
+
+Let's say you want to add a test `hello`.
+Create a dir with the name of your test under `sw/test/`. In this case it would be `sw/test/hello`.
+In this dir create `<test_name>_host.cpp` and `<test_name>_kernel.cpp`. Example `hello_host.cpp` and `hello_kernel.cpp`.
+Run `make list` to verify that make can see your test. If you added `hello` correctly, it should show print `hello` in the list.
+See existing tests for the programming model. A detailed documentation of the programming model is under construction.
 
 # Components
 

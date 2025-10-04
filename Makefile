@@ -13,7 +13,7 @@ TEST_DIRS := $(wildcard sw/test/*/)
 TESTS := $(filter-out sw/test/build/,$(TEST_DIRS))
 TEST_NAMES := $(patsubst %/,%,$(patsubst sw/test/%,%,$(TESTS)))
 
-.PHONY: run server driver clean $(TEST_NAMES)
+.PHONY: run server driver clean list $(TEST_NAMES)
 
 run: server driver
 	@set -euo pipefail; \
@@ -36,6 +36,9 @@ driver:
 clean:
 	@$(CARGO) clean --manifest-path $(RUST_MANIFEST)
 	@$(MAKE) -C sw/test clean
+
+list:
+	@printf "%s\n" $(TEST_NAMES)
 
 $(TEST_NAMES):
 	@set -euo pipefail; \
