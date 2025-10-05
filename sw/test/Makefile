@@ -1,7 +1,13 @@
 MUON_CLANG ?= $(MUON_32)/bin/clang
+MUON_OBJCOPY ?= $(MUON_32)/bin/llvm-objcopy
+MUON_OBJDUMP ?= $(MUON_32)/bin/llvm-objdump
 HOST_CLANG ?= clang++
-LLVM_CONFIG ?= $(MUON_32)/bin/llvm-config
-OBJCOPY ?= $(MUON_32)/bin/llvm-objcopy
+
+RISCV_TRIPLE := riscv32-unknown-elf
+RISCV_SYSROOT := $(MUON_32)/$(RISCV_TRIPLE)
+RISCV_FLAGS := --target=$(RISCV_TRIPLE) -march=rv32im_zfinx -mabi=ilp32 --sysroot=$(RISCV_SYSROOT)
+CLANG_RESOURCE_DIR := $(shell $(MUON_CLANG) --target=$(RISCV_TRIPLE) -print-resource-dir)
+CLANG_RT_LIB := $(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
 
 TEST ?= hello
 TEST_DIR := $(TEST)
@@ -11,17 +17,20 @@ HOST_SRCS := $(filter-out %_kernel.cpp,$(SRC))
 KERNEL_SRC := $(firstword $(filter %_kernel.cpp,$(SRC)))
 $(if $(KERNEL_SRC),,$(error No kernel source found for $(TEST_DIR)))
 $(if $(HOST_SRCS),,$(error No host sources found for $(TEST_DIR)))
+
 BUILD_ROOT := build
 BUILD_DIR := $(BUILD_ROOT)/$(TEST_NAME)
-DEVICE_BC := $(BUILD_ROOT)/$(TEST_NAME)_kernel.bc
-DEVICE_OBJ := $(BUILD_ROOT)/$(TEST_NAME)_kernel_bc.o
+KERNEL_OBJ := $(BUILD_DIR)/kernel.o
+KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+KERNEL_EMBED_OBJ := $(BUILD_DIR)/kernel_embed.o
+KERNEL_DISASM := $(BUILD_DIR)/kernel.dis
 HOST_BIN := $(BUILD_DIR)/$(TEST_NAME)
 HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
 
-LLVM_LDFLAGS := $(shell $(LLVM_CONFIG) --ldflags)
-LLVM_LIBS := $(shell $(LLVM_CONFIG) --libs core analysis bitreader passes target native object riscv --system-libs)
-LLVM_INCLUDE_DIR := $(MUON_32)/include
+KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
+HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
+
 .PHONY: all run clean
 
 all: $(HOST_BIN)
@@ -30,43 +39,29 @@ run: $(HOST_BIN)
 	cd $(REPO_ROOT) && $(HOST_BIN_ABS)
 
 $(BUILD_ROOT):
-	@if [ -e $(BUILD_ROOT) ] && [ ! -d $(BUILD_ROOT) ]; then \
-		rm -f $(BUILD_ROOT); \
-	fi
-	mkdir -p $(BUILD_ROOT)
+	mkdir -p $@
 
 $(BUILD_DIR): | $(BUILD_ROOT)
-	@if [ -e $(BUILD_DIR) ] && [ ! -d $(BUILD_DIR) ]; then \
-		rm -f $(BUILD_DIR); \
-	fi
-	mkdir -p $(BUILD_DIR)
+	mkdir -p $@
 
-$(DEVICE_BC): $(KERNEL_SRC) | $(BUILD_ROOT)
-	$(MUON_CLANG) \
-		--target=riscv32-unknown-elf \
-		-march=rv32im_zfinx -mabi=ilp32 \
-		--sysroot=$(MUON_32)/riscv32-unknown-elf \
-		-I$(MUON_32)/include \
-		-fPIC \
-		-O2 \
-		-Xclang -target-feature -Xclang +vortex \
-		-emit-llvm -c $< -o $@
+$(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
+	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(DEVICE_OBJ): $(DEVICE_BC)
-	$(OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
+$(KERNEL_ELF): $(KERNEL_OBJ) | $(BUILD_DIR)
+	$(MUON_CLANG) $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -o $@ $< $(CLANG_RT_LIB)
+	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) $@ > $(KERNEL_DISASM)
+
+$(KERNEL_EMBED_OBJ): $(KERNEL_ELF) | $(BUILD_DIR)
+	$(MUON_OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
 		--binary-architecture=x86-64 \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_bc_start=__gluon_kernel_start \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_bc_end=__gluon_kernel_end \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_bc_size=__gluon_kernel_size \
+		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_start=__gluon_kernel_start \
+		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_end=__gluon_kernel_end \
+		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_size=__gluon_kernel_size \
 		$< $@
 
-$(HOST_BIN): $(HOST_SRCS) $(DEVICE_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
-	$(HOST_CLANG) -std=c++17 -I../driver -I../driver/include \
-		-idirafter $(LLVM_INCLUDE_DIR) \
-		-D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS \
-		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp $(DEVICE_OBJ) -o $@ \
-		-fuse-ld=lld \
-		$(LLVM_LDFLAGS) $(LLVM_LIBS) -l:liblldELF.so -l:liblldCommon.so -Wl,-rpath,$(MUON_32)/lib
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_EMBED_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
+		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp $(KERNEL_EMBED_OBJ) -o $@
 
 clean:
 	rm -rf $(BUILD_ROOT)
