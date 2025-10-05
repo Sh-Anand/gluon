@@ -174,13 +174,13 @@ void radKernelLaunch(const char *kernel_name,
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
     };
 
-    size_t gpu_mem_kernel_bin_start = header.gpu_addr + KERNEL_HEADER_BYTES + params_size;
+    size_t gpu_mem_kernel_bin_start = header.gpu_addr + KERNEL_HEADER_BYTES + params_size + param_padding;
     uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + kernel_binary->start_pc;
     uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + kernel_binary->kernel_pc;
 
     push_u32(gpu_mem_start_pc);
     push_u32(gpu_mem_kernel_pc);
-    push_u32(static_cast<std::uint32_t>(params_size));
+    push_u32(static_cast<std::uint32_t>(params_size + param_padding));
     push_u32(static_cast<std::uint32_t>(kernel_binary->size));
     push_u16(static_cast<std::uint16_t>(grid_dim.x));
     push_u16(static_cast<std::uint16_t>(grid_dim.y));
