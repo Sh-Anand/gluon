@@ -348,7 +348,7 @@ namespace {
 
 std::optional<std::uint32_t> AllocateDeviceMemory(std::size_t bytes) {
     static std::uint64_t used = 0;
-    static const std::uint64_t capacity = static_cast<std::uint64_t>(RAD_GPU_DRAM_SIZE);
+    static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
     if (used > capacity) {
         return std::nullopt;
     }
@@ -400,7 +400,7 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
 
-    size_t payload_size = RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->image.size();
+    size_t payload_size = KERNEL_HEADER_BYTES + params_size + kernel_binary->image.size();
     
     rad::KernelLaunchHeader header{};
     header.command_id = 0;
@@ -413,7 +413,7 @@ void radKernelLaunch(const char *kernel_name,
     }
     header.gpu_addr = *device_addr;
 
-    uint32_t gpu_mem_start_pc = header.gpu_addr + RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->start_pc;
+    uint32_t gpu_mem_start_pc = header.gpu_addr + KERNEL_HEADER_BYTES + params_size + kernel_binary->start_pc;
     
     std::vector<std::uint8_t> payload;
     payload.reserve(payload_size);
@@ -438,13 +438,13 @@ void radKernelLaunch(const char *kernel_name,
     push_u16(static_cast<std::uint16_t>(block_dim.x));
     push_u16(static_cast<std::uint16_t>(block_dim.y));
     push_u16(static_cast<std::uint16_t>(block_dim.z));
-    push_u8(RAD_KERNEL_REGS_PER_THREAD);
-    push_u32(RAD_KERNEL_SMEM_PER_BLOCK);
-    push_u8(RAD_KERNEL_FLAGS);
-    push_u32(RAD_KERNEL_PRINTF_HOST_ADDR);
+    push_u8(KERNEL_REGS_PER_THREAD);
+    push_u32(KERNEL_SMEM_PER_BLOCK);
+    push_u8(KERNEL_FLAGS);
+    push_u32(KERNEL_PRINTF_HOST_ADDR);
     push_u32(static_cast<std::uint32_t>(params_size));
     push_u32(static_cast<std::uint32_t>(kernel_binary->image.size()));
-    push_u16(RAD_KERNEL_RESERVED_U16);
+    push_u16(KERNEL_RESERVED_U16); // padding for word aligned payload prelude
     if (params_size > 0) {
         payload.insert(payload.end(), params_data, params_data + params_size);
     }

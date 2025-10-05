@@ -4,12 +4,33 @@
 #include <cstddef>
 #include <cstdint>
 
-constexpr std::size_t RAD_GPU_DRAM_SIZE = static_cast<std::size_t>(512) * 1024 * 1024;
-constexpr std::size_t RAD_KERNEL_HEADER_BYTES = 40;
-constexpr std::uint8_t RAD_KERNEL_REGS_PER_THREAD = 1;
-constexpr std::uint32_t RAD_KERNEL_SMEM_PER_BLOCK = 1;
-constexpr std::uint8_t RAD_KERNEL_FLAGS = 0;
-constexpr std::uint32_t RAD_KERNEL_PRINTF_HOST_ADDR = 0;
-constexpr std::uint16_t RAD_KERNEL_RESERVED_U16 = 0;
+constexpr std::size_t GPU_DRAM_SIZE = static_cast<std::size_t>(512) * 1024 * 1024;
+constexpr std::uint32_t KERNEL_HEADER_MEM_START_PC = 0;
+constexpr std::uint32_t KERNEL_HEADER_MEM_KERNEL_PC = KERNEL_HEADER_MEM_START_PC + sizeof(KERNEL_HEADER_MEM_START_PC);
+constexpr std::uint16_t KERNEL_HEADER_MEM_GRID_X = KERNEL_HEADER_MEM_KERNEL_PC + sizeof(KERNEL_HEADER_MEM_KERNEL_PC);
+constexpr std::uint16_t KERNEL_HEADER_MEM_GRID_Y = KERNEL_HEADER_MEM_GRID_X + sizeof(KERNEL_HEADER_MEM_GRID_X);
+constexpr std::uint16_t KERNEL_HEADER_MEM_GRID_Z = KERNEL_HEADER_MEM_GRID_Y + sizeof(KERNEL_HEADER_MEM_GRID_Y);
+constexpr std::uint16_t KERNEL_HEADER_MEM_BLOCK_X = KERNEL_HEADER_MEM_GRID_Z + sizeof(KERNEL_HEADER_MEM_GRID_Z);
+constexpr std::uint16_t KERNEL_HEADER_MEM_BLOCK_Y = KERNEL_HEADER_MEM_BLOCK_X + sizeof(KERNEL_HEADER_MEM_BLOCK_X);
+constexpr std::uint16_t KERNEL_HEADER_MEM_BLOCK_Z = KERNEL_HEADER_MEM_BLOCK_Y + sizeof(KERNEL_HEADER_MEM_BLOCK_Y);
+constexpr std::uint8_t  KERNEL_HEADER_MEM_REGS_PER_THREAD = KERNEL_HEADER_MEM_BLOCK_Z + sizeof(KERNEL_HEADER_MEM_BLOCK_Z);
+constexpr std::uint32_t KERNEL_HEADER_MEM_SMEM_PER_BLOCK = KERNEL_HEADER_MEM_REGS_PER_THREAD + sizeof(KERNEL_HEADER_MEM_REGS_PER_THREAD);
+constexpr std::uint8_t  KERNEL_HEADER_MEM_FLAGS = KERNEL_HEADER_MEM_SMEM_PER_BLOCK + sizeof(KERNEL_HEADER_MEM_SMEM_PER_BLOCK);
+constexpr std::uint32_t KERNEL_HEADER_MEM_PRINTF_HOST_ADDR = KERNEL_HEADER_MEM_FLAGS + sizeof(KERNEL_HEADER_MEM_FLAGS);
+constexpr std::uint32_t KERNEL_HEADER_MEM_PARAMS_SZ = KERNEL_HEADER_MEM_PRINTF_HOST_ADDR + sizeof(KERNEL_HEADER_MEM_PRINTF_HOST_ADDR);
+constexpr std::uint32_t KERNEL_HEADER_MEM_BINARY_SZ = KERNEL_HEADER_MEM_PARAMS_SZ + sizeof(KERNEL_HEADER_MEM_PARAMS_SZ);
+constexpr std::uint16_t KERNEL_HEADER_MEM_PADDING = (KERNEL_HEADER_MEM_BINARY_SZ) & (sizeof(std::uint32_t) - 1);
+constexpr std::uint32_t KERNEL_HEADER_MEM_END = KERNEL_HEADER_MEM_BINARY_SZ + KERNEL_HEADER_MEM_PADDING;
+
+
+
+constexpr std::size_t KERNEL_HEADER_BYTES = 40;
+constexpr std::uint8_t KERNEL_REGS_PER_THREAD = 1;
+constexpr std::uint32_t KERNEL_SMEM_PER_BLOCK = 1;
+constexpr std::uint8_t KERNEL_FLAGS = 0;
+constexpr std::uint32_t KERNEL_PRINTF_HOST_ADDR = 0;
+constexpr std::uint16_t KERNEL_RESERVED_U16 = 0;
+
+
 
 #endif
