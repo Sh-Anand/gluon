@@ -62,7 +62,8 @@ impl KernelCommand {
 
 #[derive(Default, Clone, Copy)]
 pub struct KernelPayload {
-    entry_pc: u32,
+    start_pc: u32,
+    kernel_pc: u32,
     grid: (u16, u16, u16),
     block: (u16, u16, u16),
     regs_per_thread: u8,
@@ -76,7 +77,8 @@ pub struct KernelPayload {
 impl fmt::Debug for KernelPayload {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KernelPayload")
-            .field("entry_pc", &format_args!("0x{:08x}", self.entry_pc))
+            .field("start_pc", &format_args!("0x{:08x}", self.start_pc))
+            .field("kernel_pc", &format_args!("0x{:08x}", self.kernel_pc))
             .field("grid", &self.grid)
             .field("block", &self.block)
             .field("regs_per_thread", &self.regs_per_thread)
@@ -94,25 +96,27 @@ impl fmt::Debug for KernelPayload {
 
 impl KernelPayload {
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let entry_pc = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let start_pc = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let kernel_pc = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
         let grid = (
-            u16::from_le_bytes([bytes[4], bytes[5]]),
-            u16::from_le_bytes([bytes[6], bytes[7]]),
             u16::from_le_bytes([bytes[8], bytes[9]]),
-        );
-        let block = (
             u16::from_le_bytes([bytes[10], bytes[11]]),
             u16::from_le_bytes([bytes[12], bytes[13]]),
-            u16::from_le_bytes([bytes[14], bytes[15]]),
         );
-        let regs_per_thread = bytes[16];
-        let shmem_per_block = u32::from_le_bytes([bytes[17], bytes[18], bytes[19], bytes[20]]);
-        let flags = bytes[21];
-        let printf_host_addr = u32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]);
-        let params_sz = u32::from_le_bytes([bytes[26], bytes[27], bytes[28], bytes[29]]);
-        let binary_sz = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
+        let block = (
+            u16::from_le_bytes([bytes[14], bytes[15]]),
+            u16::from_le_bytes([bytes[16], bytes[17]]),
+            u16::from_le_bytes([bytes[18], bytes[19]]),
+        );
+        let regs_per_thread = bytes[20];
+        let shmem_per_block = u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]);
+        let flags = bytes[25];
+        let printf_host_addr = u32::from_le_bytes([bytes[26], bytes[27], bytes[28], bytes[29]]);
+        let params_sz = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
+        let binary_sz = u32::from_le_bytes([bytes[34], bytes[35], bytes[36], bytes[37]]);
         KernelPayload {
-            entry_pc,
+            start_pc,
+            kernel_pc,
             grid,
             block,
             regs_per_thread,
@@ -132,7 +136,9 @@ pub struct KernelEngine {
     mem_req: Option<MemReq>,
     mem_resp: Option<MemResp>,
 
+    kernel_payload: KernelPayload,
     state: KernelEngineState,
+    tb_size: u32,
     tb_ctr: u32,
     total_tb: u32,
     tb_done: u32,
@@ -152,7 +158,9 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             dma_req: None,
             mem_req: None,
             mem_resp: None,
+            kernel_payload: KernelPayload::default(),
             state: KernelEngineState::S0,
+            tb_size: 0,
             tb_ctr: 0,
             total_tb: 0,
             tb_done: 0,
@@ -294,6 +302,17 @@ impl Clocked for KernelEngine {
                 if self.mem_req.is_some() {
                     if self.mem_resp.is_some() {
                         self.mem_req = None;
+                        self.kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Unreachable:Kernel mem resp not set").data);
+                        info!(
+                            self.logger,
+                            "Received kernel payload: {:?}", self.kernel_payload
+                        );
+                        self.total_tb = self.kernel_payload.grid.0 as u32
+                            * self.kernel_payload.grid.1 as u32
+                            * self.kernel_payload.grid.2 as u32;
+                        self.tb_size = self.kernel_payload.block.0 as u32
+                            * self.kernel_payload.block.1 as u32
+                            * self.kernel_payload.block.2 as u32;
                         self.state = KernelEngineState::S3;
                     }
                 } else {
@@ -315,13 +334,6 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S3 => {
-                let kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Kernel engine: Mem resp not set").data);
-                self.total_tb = kernel_payload.grid.0 as u32
-                    * kernel_payload.grid.1 as u32
-                    * kernel_payload.grid.2 as u32;
-                let tb_size = kernel_payload.block.0 as u32
-                    * kernel_payload.block.1 as u32
-                    * kernel_payload.block.2 as u32;
                 let available_tbs = self.total_tb - self.tb_ctr;
 
                 if available_tbs > 0 {
@@ -335,13 +347,13 @@ impl Clocked for KernelEngine {
                             (
                                 idx,
                                 glul_cfg.num_cores * glul_cfg.num_warps * glul_cfg.num_lanes
-                                    / (tb_size as usize).min(
+                                    / (self.tb_size as usize).min(
                                         glul_cfg.regs_per_core * glul_cfg.num_cores
-                                            / (kernel_payload.regs_per_thread as usize
+                                            / (self.kernel_payload.regs_per_thread as usize
                                                 * glul_cfg.num_lanes)
                                                 .min(
                                                     glul_cfg.shmem
-                                                        / kernel_payload.shmem_per_block as usize,
+                                                        / self.kernel_payload.shmem_per_block as usize,
                                                 ),
                                     ),
                             )
@@ -352,17 +364,10 @@ impl Clocked for KernelEngine {
                         self.glul_req.n_tb = (n_tb as u32).min(available_tbs);
                         self.glul_req.thread_block = ThreadBlock {
                             id: self.tb_ctr,
-                            pc: self
-                                .cmd
-                                .expect("Unreachable:Kernel command not set")
-                                .0
-                                .gpu_addr
-                                + size_of::<KernelPayload>() as u32
-                                + kernel_payload.params_sz
-                                + kernel_payload.entry_pc,
-                            dim: kernel_payload.block,
-                            regs: kernel_payload.regs_per_thread as u32,
-                            shmem: kernel_payload.shmem_per_block as u32,
+                            pc: self.kernel_payload.start_pc,
+                            dim: self.kernel_payload.block,
+                            regs: self.kernel_payload.regs_per_thread as u32,
+                            shmem: self.kernel_payload.shmem_per_block as u32,
                         };
                         self.glul_req.idx = glul_if_idx;
 

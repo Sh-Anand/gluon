@@ -230,7 +230,7 @@ static std::optional<std::uint32_t> rad_find_symbol_pc(const std::vector<std::ui
 
 struct KernelBinary {
     std::vector<std::uint8_t> image;
-    std::uint32_t entry_pc;
+    std::uint32_t start_pc;
 };
 
 static std::optional<KernelBinary> rad_build_kernel_binary(const char *kernel_name) {
@@ -314,13 +314,13 @@ static std::optional<KernelBinary> rad_build_kernel_binary(const char *kernel_na
                     if (!binary_data) {
                         fprintf(stderr, "radKernelLaunch: failed to read linked binary\n");
                     } else {
-                        auto entry_pc = rad_find_symbol_pc(*binary_data, kernel_name);
-                        if (!entry_pc) {
+                        auto start_pc = rad_find_symbol_pc(*binary_data, kernel_name);
+                        if (!start_pc) {
                             fprintf(stderr, "radKernelLaunch: missing entry symbol %s\n", kernel_name);
                         } else {
                             KernelBinary kernel_binary;
                             kernel_binary.image = std::move(*binary_data);
-                            kernel_binary.entry_pc = *entry_pc;
+                            kernel_binary.start_pc = *start_pc;
                             output = std::move(kernel_binary);
                         }
                     }
@@ -399,8 +399,24 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: parameter buffer missing data pointer\n");
         return;
     }
+
+    size_t payload_size = RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->image.size();
+    
+    rad::KernelLaunchHeader header{};
+    header.command_id = 0;
+    header.host_offset = 0;
+    header.payload_size = static_cast<std::uint32_t>(payload_size);
+    auto device_addr = AllocateDeviceMemory(payload_size);
+    if (!device_addr) {
+        fprintf(stderr, "radKernelLaunch: failed to allocate device memory\n");
+        return;
+    }
+    header.gpu_addr = *device_addr;
+
+    uint32_t gpu_mem_start_pc = header.gpu_addr + RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->start_pc;
+    
     std::vector<std::uint8_t> payload;
-    payload.reserve(RAD_KERNEL_HEADER_BYTES + params_size + kernel_binary->image.size());
+    payload.reserve(payload_size);
     const auto push_u32 = [&payload](std::uint32_t value) {
         payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
@@ -414,7 +430,8 @@ void radKernelLaunch(const char *kernel_name,
     const auto push_u8 = [&payload](std::uint8_t value) {
         payload.push_back(value);
     };
-    push_u32(kernel_binary->entry_pc);
+    push_u32(gpu_mem_start_pc);
+    push_u32(0);
     push_u16(static_cast<std::uint16_t>(grid_dim.x));
     push_u16(static_cast<std::uint16_t>(grid_dim.y));
     push_u16(static_cast<std::uint16_t>(grid_dim.z));
@@ -436,16 +453,7 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
     }
-    rad::KernelLaunchHeader header{};
-    header.command_id = 0;
-    header.host_offset = 0;
-    header.payload_size = static_cast<std::uint32_t>(payload.size());
-    auto device_addr = AllocateDeviceMemory(payload.size());
-    if (!device_addr) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate device memory\n");
-        return;
-    }
-    header.gpu_addr = *device_addr;
+    
     auto response = rad::SubmitKernelLaunch(header, payload);
     if (!response) {
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
