@@ -8,11 +8,6 @@ int main() {
     radParamBuf params;
     params.push(1);
     params.push(2);
-    params.push(3);
-    params.push(4);
-    params.push(5);
-    params.push(6);
-    params.push(7);
     radKernelLaunch("hello_kernel", grid, block, &params);
     return 0;
 }
