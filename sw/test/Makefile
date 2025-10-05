@@ -30,6 +30,8 @@ REPO_ROOT := $(abspath ../..)
 
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
+LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
+LIBMUON_A := $(LIBMUON_DIR)/libmuon.a
 
 .PHONY: all run clean
 
@@ -47,11 +49,13 @@ $(BUILD_DIR): | $(BUILD_ROOT)
 $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(KERNEL_ELF): $(KERNEL_OBJ) | $(BUILD_DIR)
-	$(MUON_CLANG) $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -o $@ $< $(CLANG_RT_LIB)
-	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) $@ > $(KERNEL_DISASM)
+$(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
+	$(MUON_CLANG) $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -o $@ $< $(LIBMUON_A) $(CLANG_RT_LIB)
 
-$(KERNEL_EMBED_OBJ): $(KERNEL_ELF) | $(BUILD_DIR)
+$(KERNEL_DISASM): $(KERNEL_ELF)
+	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) $< > $@
+
+$(KERNEL_EMBED_OBJ): $(KERNEL_ELF) $(KERNEL_DISASM) | $(BUILD_DIR)
 	$(MUON_OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
 		--binary-architecture=x86-64 \
 		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_start=__gluon_kernel_start \
@@ -63,5 +67,9 @@ $(HOST_BIN): $(HOST_SRCS) $(KERNEL_EMBED_OBJ) ../driver/src/rad.cpp ../driver/gl
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp $(KERNEL_EMBED_OBJ) -o $@
 
+$(LIBMUON_A):
+	$(MAKE) -C $(LIBMUON_DIR)
+
 clean:
 	rm -rf $(BUILD_ROOT)
+	$(MAKE) -C $(LIBMUON_DIR) clean
