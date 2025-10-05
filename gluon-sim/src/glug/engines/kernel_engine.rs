@@ -64,14 +64,14 @@ impl KernelCommand {
 pub struct KernelPayload {
     start_pc: u32,
     kernel_pc: u32,
+    params_sz: u32,
+    binary_sz: u32,
     grid: (u16, u16, u16),
     block: (u16, u16, u16),
     regs_per_thread: u8,
     shmem_per_block: u32,
     flags: u8,
     printf_host_addr: u32,
-    params_sz: u32,
-    binary_sz: u32,
 }
 
 impl fmt::Debug for KernelPayload {
@@ -79,17 +79,14 @@ impl fmt::Debug for KernelPayload {
         f.debug_struct("KernelPayload")
             .field("start_pc", &format_args!("0x{:08x}", self.start_pc))
             .field("kernel_pc", &format_args!("0x{:08x}", self.kernel_pc))
+            .field("params_sz", &self.params_sz)
+            .field("binary_sz", &self.binary_sz)
             .field("grid", &self.grid)
             .field("block", &self.block)
             .field("regs_per_thread", &self.regs_per_thread)
             .field("shmem_per_block", &self.shmem_per_block)
             .field("flags", &self.flags)
-            .field(
-                "printf_host_addr",
-                &format_args!("0x{:08x}", self.printf_host_addr),
-            )
-            .field("params_sz", &self.params_sz)
-            .field("binary_sz", &self.binary_sz)
+            .field("printf_host_addr", &format_args!("0x{:08x}", self.printf_host_addr))
             .finish()
     }
 }
@@ -98,33 +95,33 @@ impl KernelPayload {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let start_pc = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         let kernel_pc = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        let params_sz = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
+        let binary_sz = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         let grid = (
-            u16::from_le_bytes([bytes[8], bytes[9]]),
-            u16::from_le_bytes([bytes[10], bytes[11]]),
-            u16::from_le_bytes([bytes[12], bytes[13]]),
-        );
-        let block = (
-            u16::from_le_bytes([bytes[14], bytes[15]]),
             u16::from_le_bytes([bytes[16], bytes[17]]),
             u16::from_le_bytes([bytes[18], bytes[19]]),
+            u16::from_le_bytes([bytes[20], bytes[21]]),
         );
-        let regs_per_thread = bytes[20];
-        let shmem_per_block = u32::from_le_bytes([bytes[21], bytes[22], bytes[23], bytes[24]]);
-        let flags = bytes[25];
-        let printf_host_addr = u32::from_le_bytes([bytes[26], bytes[27], bytes[28], bytes[29]]);
-        let params_sz = u32::from_le_bytes([bytes[30], bytes[31], bytes[32], bytes[33]]);
-        let binary_sz = u32::from_le_bytes([bytes[34], bytes[35], bytes[36], bytes[37]]);
+        let block = (
+            u16::from_le_bytes([bytes[22], bytes[23]]),
+            u16::from_le_bytes([bytes[24], bytes[25]]),
+            u16::from_le_bytes([bytes[26], bytes[27]]),
+        );
+        let regs_per_thread = bytes[28];
+        let shmem_per_block = u32::from_le_bytes([bytes[29], bytes[30], bytes[31], bytes[32]]);
+        let flags = bytes[33];
+        let printf_host_addr = u32::from_le_bytes([bytes[34], bytes[35], bytes[36], bytes[37]]);
         KernelPayload {
             start_pc,
             kernel_pc,
+            params_sz,
+            binary_sz,
             grid,
             block,
             regs_per_thread,
             shmem_per_block,
             flags,
             printf_host_addr,
-            params_sz,
-            binary_sz,
         }
     }
 }

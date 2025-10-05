@@ -56,10 +56,18 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
                 ELFIO::Elf_Half sec_idx;
 
                 syms.get_symbol(i, name, value, size, bind, type, sec_idx, other);
-                if (name == kernel_name) {
+                if (name == "_start") {
                     start_vaddr = value;
+                    if (kernel_vaddr)
+                        break;
+                } else if (name == kernel_name) {
+                    kernel_vaddr = value;
+                    if (start_vaddr)
+                        break;
                 }
             }
+            if (start_vaddr && kernel_vaddr)
+                break;
         }
     }
 
@@ -71,19 +79,20 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
             continue;
         auto vaddr = seg->get_virtual_address();
         auto filesz = seg->get_file_size();
-        if (start_vaddr >= vaddr && start_vaddr < vaddr + filesz) {
-            start_offset = static_cast<uint32_t>(
-                start_vaddr - vaddr + seg->get_offset());
+        if (start_vaddr >= vaddr && start_vaddr < vaddr + filesz)
+            start_offset = static_cast<uint32_t>(start_vaddr - vaddr + seg->get_offset());
+        if (kernel_vaddr >= vaddr && kernel_vaddr < vaddr + filesz)
+            kernel_offset = static_cast<uint32_t>(kernel_vaddr - vaddr + seg->get_offset());
+        if (start_offset && kernel_offset)
             break;
-        }
     }
 
-    KernelBinary binary;
-    binary.start_pc = start_offset;
-    binary.kernel_pc = kernel_offset;
-    binary.data = start;
-    binary.size = size;
-    return binary;
+    if (!start_offset && !kernel_offset) {
+        fprintf(stderr, "radKernelLaunch: failed to find start or kernel offset\n");
+        return std::nullopt;
+    }
+    fprintf(stderr, "radKernelLaunch: found start offset: %u, kernel offset: %u\n", start_offset, kernel_offset);
+    return KernelBinary{start_offset, kernel_offset, start, size};
 }
 
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
@@ -134,7 +143,13 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: parameter buffer missing data pointer\n");
         return;
     }
-    size_t payload_size = KERNEL_HEADER_BYTES + params_size + kernel_binary->size;
+    size_t payload_size = KERNEL_HEADER_BYTES + params_size;
+    uint32_t param_padding = (payload_size) & (sizeof(uint32_t) - 1);
+    payload_size += param_padding;
+    payload_size += kernel_binary->size;
+    uint32_t kernel_bin_padding = (payload_size) & (sizeof(uint32_t) - 1);
+    payload_size += kernel_bin_padding;
+
     rad::KernelLaunchHeader header{};
     header.command_id = 0;
     header.host_offset = 0;
@@ -145,7 +160,7 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
     header.gpu_addr = *device_addr;
-    uint32_t gpu_mem_start_pc = header.gpu_addr + KERNEL_HEADER_BYTES + static_cast<uint32_t>(params_size) + kernel_binary->start_pc;
+
     std::vector<std::uint8_t> payload;
     payload.reserve(payload_size);
     const auto push_u32 = [&payload](std::uint32_t value) {
@@ -158,27 +173,35 @@ void radKernelLaunch(const char *kernel_name,
         payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
     };
-    const auto push_u8 = [&payload](std::uint8_t value) {
-        payload.push_back(value);
-    };
+
+    size_t gpu_mem_kernel_bin_start = header.gpu_addr + KERNEL_HEADER_BYTES + params_size;
+    uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + kernel_binary->start_pc;
+    uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + kernel_binary->kernel_pc;
+
     push_u32(gpu_mem_start_pc);
-    push_u32(0);
+    push_u32(gpu_mem_kernel_pc);
+    push_u32(static_cast<std::uint32_t>(params_size));
+    push_u32(static_cast<std::uint32_t>(kernel_binary->size));
     push_u16(static_cast<std::uint16_t>(grid_dim.x));
     push_u16(static_cast<std::uint16_t>(grid_dim.y));
     push_u16(static_cast<std::uint16_t>(grid_dim.z));
     push_u16(static_cast<std::uint16_t>(block_dim.x));
     push_u16(static_cast<std::uint16_t>(block_dim.y));
     push_u16(static_cast<std::uint16_t>(block_dim.z));
-    push_u8(KERNEL_REGS_PER_THREAD);
+    payload.push_back(KERNEL_REGS_PER_THREAD);
     push_u32(KERNEL_SMEM_PER_BLOCK);
-    push_u8(KERNEL_FLAGS);
+    payload.push_back(KERNEL_FLAGS);
     push_u32(KERNEL_PRINTF_HOST_ADDR);
-    push_u32(static_cast<std::uint32_t>(params_size));
-    push_u32(static_cast<std::uint32_t>(kernel_binary->size));
     push_u16(KERNEL_RESERVED_U16);
+    
     if (params_size > 0)
         payload.insert(payload.end(), params_data, params_data + params_size);
+    for (size_t i = 0; i < param_padding; ++i)
+        payload.push_back(0);
+
     payload.insert(payload.end(), kernel_binary->data, kernel_binary->data + kernel_binary->size);
+    for (size_t i = 0; i < kernel_bin_padding; ++i)
+        payload.push_back(0);
     if (payload.size() > UINT32_MAX) {
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
