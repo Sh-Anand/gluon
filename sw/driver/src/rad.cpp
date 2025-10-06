@@ -282,27 +282,38 @@ void radKernelLaunch(const char *kernel_name,
 }
 
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
-    if (!dst || !src)
+    fprintf(stderr, "radMemCpy: dst=%p, src=%p, bytes=%zu, dir=%d\n", dst, src, bytes, dir);
+    if (dst == nullptr || src == nullptr)
         return;
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = 0;
-    header_bytes[1] = 0;
-    write_u32_le(header_bytes.data() + 2, 0);
-    write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(bytes));
-    write_u32_le(header_bytes.data() + 10,
-                 static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst)));
-    write_u32_le(header_bytes.data() + 14,
-                 static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src)));
-    auto response = rad::SubmitCommand(header_bytes, nullptr, 0);
+    header_bytes[1] = radCmdType_MEM;
+    header_bytes[2] = radMemCmdType_COPY;
+    void *src_addr, *dst_addr, *payload_addr;
+    if (dir == radMemCpyDir_H2D) {
+        src_addr = 0;
+        dst_addr = dst;
+        payload_addr = src;
+    } else {
+        src_addr = src;
+        dst_addr = 0;
+        payload_addr = src;
+    }
+    write_u32_le(header_bytes.data() + 3, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src_addr)));
+    write_u32_le(header_bytes.data() + 7, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst_addr)));
+    write_u32_le(header_bytes.data() + 11, static_cast<std::uint32_t>(bytes));
+    header_bytes[15] = dir;
+    auto response = rad::SubmitCommand(header_bytes, payload_addr, bytes);
     if (!response)
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }
 
 void radMalloc(void **ptr, size_t bytes) {
-    if (!ptr)
+    if (ptr == nullptr)
         return;
     auto device_addr = allocateDeviceMemory(bytes);
     if (!device_addr) {
+        fprintf(stderr, "radMalloc: failed to allocate device memory\n");
         *ptr = nullptr;
         return;
     }
