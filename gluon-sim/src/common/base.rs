@@ -77,9 +77,9 @@ pub enum DMADir {
 impl From<bool> for DMADir {
     fn from(value: bool) -> Self {
         if !value {
-            DMADir::D2H
-        } else {
             DMADir::H2D
+        } else {
+            DMADir::D2H
         }
     }
 }
