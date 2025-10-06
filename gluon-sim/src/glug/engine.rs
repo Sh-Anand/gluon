@@ -101,7 +101,7 @@ impl EngineCommand {
         self.id
     }
 
-    pub fn payload(&self) -> &[u8; 14] {
+    pub fn bytes(&self) -> &[u8; 14] {
         &self.bytes
     }
 }

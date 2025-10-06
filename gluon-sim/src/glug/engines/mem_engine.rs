@@ -86,10 +86,10 @@ impl SetCommand {
 
 impl MemCommand {
     pub fn from_engine_cmd(cmd: EngineCommand) -> Self {
-        let payload = cmd.payload();
+        let engine_bytes = cmd.bytes();
 
-        let op = MemOp::from(payload[0]);
-        let bytes = payload[1..13].try_into().unwrap();
+        let op = MemOp::from(engine_bytes[0]);
+        let bytes = engine_bytes[1..14].try_into().unwrap();
 
         MemCommand {
             id: cmd.id(),

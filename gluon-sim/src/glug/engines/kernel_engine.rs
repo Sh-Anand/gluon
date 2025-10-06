@@ -41,7 +41,7 @@ pub struct KernelCommand {
 
 impl KernelCommand {
     pub fn from_engine_cmd(cmd: EngineCommand) -> Self {
-        let payload = cmd.payload();
+        let payload = cmd.bytes();
 
         let host_addr = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
         let sz = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);

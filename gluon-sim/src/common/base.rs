@@ -42,7 +42,7 @@ impl Command {
     }
 
     pub fn cmd_type(&self) -> CmdType {
-        match self.bytes[0] {
+        match self.bytes[1] {
             0 => CmdType::KERNEL,
             1 => CmdType::MEM,
             2 => CmdType::CSR,
@@ -52,7 +52,7 @@ impl Command {
     }
 
     pub fn id(&self) -> u8 {
-        self.bytes[1]
+        self.bytes[0]
     }
 
     pub fn is_fence(&self) -> bool {
