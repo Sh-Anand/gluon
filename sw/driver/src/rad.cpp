@@ -169,7 +169,7 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
 }
 
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
-    static std::uint64_t used = 0;
+    static std::uint64_t used = GPU_MEM_START_ADDR;
     static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
     if (used > capacity)
         return std::nullopt;
@@ -272,7 +272,7 @@ void radKernelLaunch(const char *kernel_name,
     }
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = 0;
-    header_bytes[1] = 0;
+    header_bytes[1] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
     write_u32_le(header_bytes.data() + 10, gpu_addr);
