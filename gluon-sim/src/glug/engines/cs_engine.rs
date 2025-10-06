@@ -12,10 +12,12 @@ use serde::Deserialize;
 #[serde(default)]
 pub struct CSEngineConfig {}
 
-pub struct CSEngine {}
+pub struct CSEngine {
+    logger: Arc<Logger>,
+}
 
 impl Engine for CSEngine {
-    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize) {}
+    fn set_cmd(&mut self, _: EngineCommand, _: usize) {}
 
     fn busy(&self) -> bool {
         false
@@ -25,7 +27,9 @@ impl Engine for CSEngine {
         CmdType::CSR
     }
 
-    fn set_logger(&mut self, logger: Arc<Logger>) {}
+    fn set_logger(&mut self, logger: Arc<Logger>) {
+        self.logger = logger;
+    }
 
     fn get_dma_req(&self) -> Option<&crate::common::base::DMAReq> {
         None
@@ -37,19 +41,27 @@ impl Engine for CSEngine {
         None
     }
 
-    fn set_mem_resp(&mut self, _: Option<&Vec<u8>>) {}
+    fn set_mem_resp(&mut self, _: Option<&Vec<u8>>) {
+        panic!("CSR engine: cannot set mem resp");
+    }
 
     fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULReq> {
         None
     }
 
-    fn clear_glul_req(&mut self) {}
+    fn clear_glul_req(&mut self) {
+        panic!("CSR engine: cannot clear glul req");
+    }
 
-    fn notify_glul_done(&mut self, _: u32) {}
+    fn notify_glul_done(&mut self, _: u32) {
+        panic!("CSR engine: cannot notify glul done");
+    }
 
     fn set_gluls(&mut self, _: Vec<GLULStatus>) {}
 
-    fn notify_glul_err(&mut self, _: ExecErr) {}
+    fn notify_glul_err(&mut self, _: ExecErr) {
+        panic!("CSR engine: cannot notify glul err");
+    }
 
     fn get_completion(&self) -> Option<(Event, usize)> {
         None
@@ -58,7 +70,9 @@ impl Engine for CSEngine {
 
 impl Configurable<CSEngineConfig> for CSEngine {
     fn new(_config: CSEngineConfig) -> Self {
-        CSEngine {}
+        CSEngine {
+            logger: Arc::new(Logger::new(0)),
+        }
     }
 }
 
