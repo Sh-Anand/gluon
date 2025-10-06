@@ -22,7 +22,7 @@ impl Engine for CSEngine {
     }
 
     fn cmd_type(&self) -> crate::common::base::CmdType {
-        CmdType::MEM
+        CmdType::CSR
     }
 
     fn set_logger(&mut self, logger: Arc<Logger>) {}
