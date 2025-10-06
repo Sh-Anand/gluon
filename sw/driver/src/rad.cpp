@@ -1,6 +1,7 @@
 #include "rad.h"
 #include "driver.h"
 
+#include <array>
 #include <cstdio>
 #include <optional>
 #include <sstream>
@@ -150,16 +151,12 @@ void radKernelLaunch(const char *kernel_name,
     uint32_t kernel_bin_padding = (payload_size) & (sizeof(uint32_t) - 1);
     payload_size += kernel_bin_padding;
 
-    rad::KernelLaunchHeader header{};
-    header.command_id = 0;
-    header.host_offset = 0;
-    header.payload_size = static_cast<uint32_t>(payload_size);
     auto device_addr = allocateDeviceMemory(payload_size);
     if (!device_addr) {
         fprintf(stderr, "radKernelLaunch: failed to allocate device memory\n");
         return;
     }
-    header.gpu_addr = *device_addr;
+    uint32_t gpu_addr = *device_addr;
 
     std::vector<std::uint8_t> payload;
     payload.reserve(payload_size);
@@ -174,7 +171,7 @@ void radKernelLaunch(const char *kernel_name,
         payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
     };
 
-    size_t gpu_mem_kernel_bin_start = header.gpu_addr + KERNEL_HEADER_BYTES + params_size + param_padding;
+    size_t gpu_mem_kernel_bin_start = gpu_addr + KERNEL_HEADER_BYTES + params_size + param_padding;
     uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + kernel_binary->start_pc;
     uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + kernel_binary->kernel_pc;
 
@@ -206,7 +203,19 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
     }
-    auto response = rad::SubmitKernelLaunch(header, payload);
+    std::array<std::uint8_t, 16> header_bytes{};
+    header_bytes[0] = 0;
+    header_bytes[1] = 0;
+    const auto write_u32 = [&header_bytes](std::size_t offset, std::uint32_t value) {
+        header_bytes[offset + 0] = static_cast<std::uint8_t>(value & 0xFF);
+        header_bytes[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
+        header_bytes[offset + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
+        header_bytes[offset + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+    };
+    write_u32(2, 0);
+    write_u32(6, static_cast<std::uint32_t>(payload.size()));   
+    write_u32(10, gpu_addr);
+    auto response = rad::SubmitCommand(header_bytes, payload);
     if (!response)
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
 }

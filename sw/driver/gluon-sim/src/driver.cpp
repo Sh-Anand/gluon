@@ -13,7 +13,6 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -47,7 +46,6 @@ struct ConnectionState {
     bool initialized = false;
     int sock = -1;
     SharedMemoryRegion shared;
-std::uint32_t gpu_addr = 0;
 };
 
 ConnectionState& GetState() {
@@ -134,14 +132,12 @@ void ShutdownConnection() {
     }
     state.shared.Reset();
     state.initialized = false;
-    state.gpu_addr = 0;
 }
 
-bool InitConnection(std::size_t shared_mem_bytes, std::uint32_t gpu_addr) {
+bool InitConnection(std::size_t shared_mem_bytes) {
     ConnectionState& state = GetState();
     if (state.initialized) {
         if (shared_mem_bytes <= state.shared.size) {
-            state.gpu_addr = gpu_addr;
             return true;
         }
         ShutdownConnection();
@@ -250,7 +246,6 @@ bool InitConnection(std::size_t shared_mem_bytes, std::uint32_t gpu_addr) {
     region.addr = MAP_FAILED;
     region.size = 0;
     state.sock = sock;
-    state.gpu_addr = gpu_addr;
     state.initialized = true;
     static bool registered = false;
     if (!registered) {
@@ -260,45 +255,43 @@ bool InitConnection(std::size_t shared_mem_bytes, std::uint32_t gpu_addr) {
     return true;
 }
 
-std::optional<std::string> SubmitKernelLaunch(const KernelLaunchHeader& header,
-                                              const std::vector<std::uint8_t>& payload) {
+std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& header,
+                                         const std::vector<std::uint8_t>& payload) {
     ConnectionState& state = GetState();
     if (!state.initialized) {
-        if (!InitConnection(1 << 20, 0)) {
+        if (!InitConnection(1 << 20)) {
             std::cerr << "Failed to initialize connection\n";
             return std::nullopt;
         }
     }
-    if (header.payload_size != payload.size()) {
-        std::cerr << "Kernel payload size mismatch\n";
-        return std::nullopt;
-    }
-    if (header.host_offset > state.shared.size ||
-        header.host_offset + payload.size() > state.shared.size) {
-        std::cerr << "Kernel payload offset outside shared memory\n";
-        return std::nullopt;
-    }
-    std::memcpy(static_cast<std::uint8_t*>(state.shared.addr) + header.host_offset,
-                payload.data(),
-                payload.size());
-    std::array<std::uint8_t, 16> kernel_launch_cmd{};
-    kernel_launch_cmd[0] = 0;
-    kernel_launch_cmd[1] = header.command_id;
-    const auto write_u32 = [&kernel_launch_cmd](std::size_t offset, std::uint32_t value) {
-        kernel_launch_cmd[offset + 0] = static_cast<std::uint8_t>(value & 0xFF);
-        kernel_launch_cmd[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
-        kernel_launch_cmd[offset + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
-        kernel_launch_cmd[offset + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+    const auto read_u32 = [&header](std::size_t offset) {
+        return static_cast<std::uint32_t>(header[offset]) |
+               (static_cast<std::uint32_t>(header[offset + 1]) << 8) |
+               (static_cast<std::uint32_t>(header[offset + 2]) << 16) |
+               (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
-    write_u32(2, header.host_offset);
-    write_u32(6, header.payload_size);
-    write_u32(10, header.gpu_addr);
-    std::cout << "Submitting kernel launch command (id="
-              << static_cast<int>(kernel_launch_cmd[1]) << ")\n";
-    std::cout << "  host_offset=" << FormatHex32(header.host_offset)
-              << " size=" << header.payload_size
-              << " gpu_addr=" << FormatHex32(header.gpu_addr) << '\n';
-    if (!SendAll(state.sock, kernel_launch_cmd.data(), kernel_launch_cmd.size())) {
+    std::uint32_t host_offset = read_u32(2);
+    std::uint32_t payload_size = read_u32(6);
+    std::uint32_t gpu_addr = read_u32(10);
+    if (payload_size != payload.size()) {
+        std::cerr << "Command payload size mismatch\n";
+        return std::nullopt;
+    }
+    if (host_offset > state.shared.size ||
+        host_offset + payload_size > state.shared.size) {
+        std::cerr << "Command payload offset outside shared memory\n";
+        return std::nullopt;
+    }
+    if (!payload.empty()) {
+        std::memcpy(static_cast<std::uint8_t*>(state.shared.addr) + host_offset,
+                    payload.data(),
+                    payload.size());
+    }
+    std::cout << "Submitting command (id=" << static_cast<int>(header[1])
+              << ", host_offset=" << FormatHex32(host_offset)
+              << " size=" << payload_size
+              << " gpu_addr=" << FormatHex32(gpu_addr) << ")\n";
+    if (!SendAll(state.sock, header.data(), header.size())) {
         std::cerr << "Failed to send command: " << std::strerror(errno) << '\n';
         return std::nullopt;
     }
