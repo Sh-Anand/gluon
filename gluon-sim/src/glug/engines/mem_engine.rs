@@ -229,11 +229,12 @@ impl Clocked for MemEngine {
             }
             MemEngineState::S0 => {
                 let set_cmd = SetCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").0.bytes);
+                let data = set_cmd.value.to_le_bytes().repeat((set_cmd.len / 4) as usize);
                 self.mem_req = Some(MemReq {
                     addr: set_cmd.dst,
                     write: true,
                     bytes: set_cmd.len,
-                    data: vec![set_cmd.value as u8; set_cmd.len as usize], // TODO support upto 4 byte words
+                    data,
                 });
                 self.state = MemEngineState::S1;
                 info!(self.logger, "Mem engine: command {:?}", set_cmd);
