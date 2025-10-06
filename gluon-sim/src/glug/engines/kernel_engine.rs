@@ -203,7 +203,7 @@ impl Engine for KernelEngine {
     }
 
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>) {
-        self.mem_resp = data.map(|bytes| MemResp { data: bytes.clone() });
+        self.mem_resp = data.map(|bytes| MemResp { data: Some(bytes.clone()) });
     }
 
     fn get_glul_req(&self) -> Option<&GLULReq> {
@@ -299,7 +299,7 @@ impl Clocked for KernelEngine {
                 if self.mem_req.is_some() {
                     if self.mem_resp.is_some() {
                         self.mem_req = None;
-                        self.kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Unreachable:Kernel mem resp not set").data);
+                        self.kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Unreachable:Kernel mem resp not set").data.as_ref().expect("Unreachable:Kernel mem resp no data"));
                         info!(
                             self.logger,
                             "Received kernel payload: {:?}", self.kernel_payload

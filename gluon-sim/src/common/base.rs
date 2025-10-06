@@ -74,6 +74,16 @@ pub enum DMADir {
     D2H,
 }
 
+impl From<bool> for DMADir {
+    fn from(value: bool) -> Self {
+        if !value {
+            DMADir::D2H
+        } else {
+            DMADir::H2D
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DMAReq {
     pub dir: DMADir,
@@ -93,7 +103,7 @@ pub struct MemReq {
 
 #[derive(Debug, Default, Clone)]
 pub struct MemResp {
-    pub data: Vec<u8>,
+    pub data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
