@@ -22,6 +22,19 @@ enum radMemCpyDir {
     radMemCpyDir_D2H,
 };
 
+enum radCmdType {
+    radCmdType_KERNEL,
+    radCmdType_MEM,
+    radCmdType_CSR,
+    radCmdType_FENCE,
+    radCmdType_UNDEFINED,
+};
+
+enum radMemCmdType {
+    radMemCmdType_COPY,
+    radMemCmdType_SET,
+};
+
 struct radParamBuf {
     std::vector<std::uint8_t> storage;
     std::size_t offset = 0;
