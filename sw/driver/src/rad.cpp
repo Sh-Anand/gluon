@@ -220,6 +220,28 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
 }
 
+void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
+    if (!dst || !src)
+        return;
+    std::array<std::uint8_t, 16> header_bytes{};
+    header_bytes[0] = 0;
+    header_bytes[1] = 0;
+
+    const auto write_u32 = [&header_bytes](std::size_t offset, std::uint32_t value) {
+        header_bytes[offset + 0] = static_cast<std::uint8_t>(value & 0xFF);
+        header_bytes[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
+        header_bytes[offset + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
+        header_bytes[offset + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+    };
+    write_u32(2, 0);
+    write_u32(6, static_cast<std::uint32_t>(bytes));
+    write_u32(10, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst)));
+    write_u32(14, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src)));
+    auto response = rad::SubmitCommand(header_bytes, {});
+    if (!response)
+        fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
+}
+
 void radMalloc(void **ptr, size_t bytes) {
     if (!ptr)
         return;

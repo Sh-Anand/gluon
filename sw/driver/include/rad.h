@@ -17,6 +17,11 @@ typedef struct {
     unsigned int z;
 } radDim3;
 
+enum radMemCpyDir {
+    radMemCpyDir_H2D,
+    radMemCpyDir_D2H,
+};
+
 struct radParamBuf {
     std::vector<std::uint8_t> storage;
     std::size_t offset = 0;
@@ -53,6 +58,8 @@ struct radParamBuf {
 };
 
 void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params);
+
+void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir);
 
 void radMalloc(void **ptr, size_t bytes);
 
