@@ -2,15 +2,87 @@
 #include "driver.h"
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <memory>
+#include <new>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
-#include <sstream>
 
 #include <elfio/elfio.hpp>
 #include <iomanip>
+
+namespace {
+
+void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
+    dst[0] = static_cast<std::uint8_t>(value & 0xFF);
+    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
+    dst[2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
+    dst[3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+}
+
+void write_u16_le(std::uint8_t* dst, std::uint16_t value) {
+    dst[0] = static_cast<std::uint8_t>(value & 0xFF);
+    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
+}
+
+struct BufferWriter {
+    std::uint8_t* cursor;
+    std::uint8_t* end;
+
+    bool write_u32(std::uint32_t value) {
+        if (!remaining(4))
+            return false;
+        write_u32_le(cursor, value);
+        cursor += 4;
+        return true;
+    }
+
+    bool write_u16(std::uint16_t value) {
+        if (!remaining(2))
+            return false;
+        write_u16_le(cursor, value);
+        cursor += 2;
+        return true;
+    }
+
+    bool write_u8(std::uint8_t value) {
+        if (!remaining(1))
+            return false;
+        *cursor++ = value;
+        return true;
+    }
+
+    bool write_block(const void* data, std::size_t size) {
+        if (size == 0)
+            return true;
+        if (!remaining(size))
+            return false;
+        std::memcpy(cursor, data, size);
+        cursor += size;
+        return true;
+    }
+
+    bool write_zero(std::size_t size) {
+        if (size == 0)
+            return true;
+        if (!remaining(size))
+            return false;
+        std::memset(cursor, 0, size);
+        cursor += size;
+        return true;
+    }
+
+    bool finished() const { return cursor == end; }
+
+private:
+    bool remaining(std::size_t size) const { return cursor + size <= end; }
+};
+
+}  // namespace
 
 using namespace ELFIO;
 
@@ -158,64 +230,53 @@ void radKernelLaunch(const char *kernel_name,
     }
     uint32_t gpu_addr = *device_addr;
 
-    std::vector<std::uint8_t> payload;
-    payload.reserve(payload_size);
-    const auto push_u32 = [&payload](std::uint32_t value) {
-        payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
-        payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
-        payload.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
-        payload.push_back(static_cast<std::uint8_t>((value >> 24) & 0xFF));
-    };
-    const auto push_u16 = [&payload](std::uint16_t value) {
-        payload.push_back(static_cast<std::uint8_t>(value & 0xFF));
-        payload.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
-    };
-
     size_t gpu_mem_kernel_bin_start = gpu_addr + KERNEL_HEADER_BYTES + params_size + param_padding;
     uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + kernel_binary->start_pc;
     uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + kernel_binary->kernel_pc;
-
-    push_u32(gpu_mem_start_pc);
-    push_u32(gpu_mem_kernel_pc);
-    push_u32(static_cast<std::uint32_t>(params_size + param_padding));
-    push_u32(static_cast<std::uint32_t>(kernel_binary->size));
-    push_u16(static_cast<std::uint16_t>(grid_dim.x));
-    push_u16(static_cast<std::uint16_t>(grid_dim.y));
-    push_u16(static_cast<std::uint16_t>(grid_dim.z));
-    push_u16(static_cast<std::uint16_t>(block_dim.x));
-    push_u16(static_cast<std::uint16_t>(block_dim.y));
-    push_u16(static_cast<std::uint16_t>(block_dim.z));
-    payload.push_back(KERNEL_REGS_PER_THREAD);
-    push_u32(KERNEL_SMEM_PER_BLOCK);
-    payload.push_back(KERNEL_FLAGS);
-    push_u32(KERNEL_PRINTF_HOST_ADDR);
-    push_u16(KERNEL_RESERVED_U16);
-    
-    if (params_size > 0)
-        payload.insert(payload.end(), params_data, params_data + params_size);
-    for (size_t i = 0; i < param_padding; ++i)
-        payload.push_back(0);
-
-    payload.insert(payload.end(), kernel_binary->data, kernel_binary->data + kernel_binary->size);
-    for (size_t i = 0; i < kernel_bin_padding; ++i)
-        payload.push_back(0);
-    if (payload.size() > UINT32_MAX) {
+    if (payload_size == 0) {
+        fprintf(stderr, "radKernelLaunch: empty payload size\n");
+        return;
+    }
+    std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
+    if (!payload) {
+        fprintf(stderr, "radKernelLaunch: failed to allocate payload buffer\n");
+        return;
+    }
+    BufferWriter writer{payload.get(), payload.get() + payload_size};
+    if (!writer.write_u32(gpu_mem_start_pc) ||
+        !writer.write_u32(gpu_mem_kernel_pc) ||
+        !writer.write_u32(static_cast<std::uint32_t>(params_size + param_padding)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(kernel_binary->size)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.x)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.y)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.z)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(block_dim.x)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(block_dim.y)) ||
+        !writer.write_u16(static_cast<std::uint16_t>(block_dim.z)) ||
+        !writer.write_u8(KERNEL_REGS_PER_THREAD) ||
+        !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
+        !writer.write_u8(KERNEL_FLAGS) ||
+        !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
+        !writer.write_u16(KERNEL_RESERVED_U16) ||
+        !writer.write_block(params_data, params_size) ||
+        !writer.write_zero(param_padding) ||
+        !writer.write_block(kernel_binary->data, kernel_binary->size) ||
+        !writer.write_zero(kernel_bin_padding) ||
+        !writer.finished()) {
+        fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
+        return;
+    }
+    if (payload_size > UINT32_MAX) {
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
     }
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = 0;
     header_bytes[1] = 0;
-    const auto write_u32 = [&header_bytes](std::size_t offset, std::uint32_t value) {
-        header_bytes[offset + 0] = static_cast<std::uint8_t>(value & 0xFF);
-        header_bytes[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
-        header_bytes[offset + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
-        header_bytes[offset + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
-    };
-    write_u32(2, 0);
-    write_u32(6, static_cast<std::uint32_t>(payload.size()));   
-    write_u32(10, gpu_addr);
-    auto response = rad::SubmitCommand(header_bytes, payload);
+    write_u32_le(header_bytes.data() + 2, 0);
+    write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
+    write_u32_le(header_bytes.data() + 10, gpu_addr);
+    auto response = rad::SubmitCommand(header_bytes, payload.get(), payload_size);
     if (!response)
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
 }
@@ -226,18 +287,13 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = 0;
     header_bytes[1] = 0;
-
-    const auto write_u32 = [&header_bytes](std::size_t offset, std::uint32_t value) {
-        header_bytes[offset + 0] = static_cast<std::uint8_t>(value & 0xFF);
-        header_bytes[offset + 1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
-        header_bytes[offset + 2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
-        header_bytes[offset + 3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
-    };
-    write_u32(2, 0);
-    write_u32(6, static_cast<std::uint32_t>(bytes));
-    write_u32(10, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst)));
-    write_u32(14, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src)));
-    auto response = rad::SubmitCommand(header_bytes, {});
+    write_u32_le(header_bytes.data() + 2, 0);
+    write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(bytes));
+    write_u32_le(header_bytes.data() + 10,
+                 static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst)));
+    write_u32_le(header_bytes.data() + 14,
+                 static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src)));
+    auto response = rad::SubmitCommand(header_bytes, nullptr, 0);
     if (!response)
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }

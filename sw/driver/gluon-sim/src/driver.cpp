@@ -16,7 +16,6 @@
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include <toml.hpp>
 
@@ -256,7 +255,8 @@ bool InitConnection(std::size_t shared_mem_bytes) {
 }
 
 std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& header,
-                                         const std::vector<std::uint8_t>& payload) {
+                                         const void* payload,
+                                         std::size_t payload_size) {
     ConnectionState& state = GetState();
     if (!state.initialized) {
         if (!InitConnection(1 << 20)) {
@@ -271,25 +271,29 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
                (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
     std::uint32_t host_offset = read_u32(2);
-    std::uint32_t payload_size = read_u32(6);
+    std::uint32_t payload_size_field = read_u32(6);
     std::uint32_t gpu_addr = read_u32(10);
-    if (payload_size != payload.size()) {
+    if (payload_size_field != payload_size) {
         std::cerr << "Command payload size mismatch\n";
         return std::nullopt;
     }
     if (host_offset > state.shared.size ||
-        host_offset + payload_size > state.shared.size) {
+        host_offset + payload_size_field > state.shared.size) {
         std::cerr << "Command payload offset outside shared memory\n";
         return std::nullopt;
     }
-    if (!payload.empty()) {
+    if (payload_size_field > 0) {
+        if (!payload) {
+            std::cerr << "Command payload missing data pointer\n";
+            return std::nullopt;
+        }
         std::memcpy(static_cast<std::uint8_t*>(state.shared.addr) + host_offset,
-                    payload.data(),
-                    payload.size());
+                    payload,
+                    payload_size_field);
     }
     std::cout << "Submitting command (id=" << static_cast<int>(header[1])
               << ", host_offset=" << FormatHex32(host_offset)
-              << " size=" << payload_size
+              << " size=" << payload_size_field
               << " gpu_addr=" << FormatHex32(gpu_addr) << ")\n";
     if (!SendAll(state.sock, header.data(), header.size())) {
         std::cerr << "Failed to send command: " << std::strerror(errno) << '\n';
