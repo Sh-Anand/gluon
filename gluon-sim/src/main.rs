@@ -7,13 +7,13 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Arc;
 
-use gluon::common::base::Clocked;
+use gluon::common::base::{Clocked, Command};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::unix::OwnedReadHalf;
+use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{unix::SocketAddr, UnixListener, UnixStream};
 use tokio::sync::Mutex;
-
-use gluon::common::base::Command;
 use gluon::glug::completion::CompletionConfig;
 use gluon::glug::decode_dispatch::DecodeDispatchConfig;
 use gluon::glug::engine::EngineConfig;
@@ -163,41 +163,46 @@ fn recv_memfd(socket_fd: RawFd) -> io::Result<(OwnedFd, usize)> {
     }
 }
 
-async fn handle_client(
-    mut stream: UnixStream,
-    addr: SocketAddr,
-    top: Arc<Mutex<Top>>,
-) -> tokio::io::Result<()> {
-    println!("Client connected: {addr:?}");
-
-    let shared_memory = receive_shared_memory_region(&stream).await?;
-    println!("Shared memory region: {:?}", shared_memory);
-
+async fn enqueue_command(mut stream: OwnedReadHalf, addr: SocketAddr, top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
+    let mut buffer = [0_u8; 16];
     loop {
-        let mut buffer = [0_u8; 16];
         match stream.read_exact(&mut buffer).await {
             Ok(_) => {
                 let command = Command::from_bytes(buffer);
-
-                let sim_err = {
+                {
                     let mut top_guard = top.lock().await;
                     top_guard.submit_command(command);
-                    top_guard.tick()
-                };
-
-                sim_err.expect("Sim exit");
+                    top_guard.tick().unwrap();
+                }
             }
             Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
                 println!("Client closed connection: {addr:?}");
-                break;
+                return Ok(());
             }
             Err(err) => return Err(err),
         }
+        tokio::task::yield_now().await;
     }
+}
 
-    stream.shutdown().await?;
+async fn tick_sim(top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
+    loop {
+        let mut top_guard = top.lock().await;
+        top_guard.tick().unwrap();
+    }
+}
 
-    Ok(())
+async fn dequeue_completion(mut stream: OwnedWriteHalf, top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
+    loop {
+        if let Some(event) = {
+            let mut top_guard = top.lock().await;
+            top_guard.get_completion()
+        } {
+            stream.write_all(event.bytes.as_slice()).await?;
+            println!("Sent completion: {:?}", event);
+        }
+        tokio::task::yield_now().await;
+    }
 }
 
 #[tokio::main]
@@ -227,55 +232,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
     println!("Server listening on {socket_path}");
 
-    let top_for_listener = Arc::clone(&top);
-    let server_task = tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, addr)) => {
-                    let top_for_client = Arc::clone(&top_for_listener);
-                    if let Err(err) = handle_client(stream, addr, top_for_client).await {
-                        eprintln!("Error handling client: {err}");
-                    }
-                }
-                Err(err) => {
-                    eprintln!("Failed to accept connection: {err}");
-                }
-            }
+    match listener.accept().await {
+        Ok((stream, addr)) => {
+            println!("Client connected: {addr:?}");
+
+            let shared_memory = receive_shared_memory_region(&stream).await?;
+            println!("Shared memory region: {:?}", shared_memory);
+
+            let (read_half, write_half) = stream.into_split();
+
+            let h1 = tokio::task::spawn(enqueue_command(read_half, addr, Arc::clone(&top)));
+            let h2 = tokio::task::spawn(tick_sim(Arc::clone(&top)));
+            let h3 = tokio::task::spawn(dequeue_completion(write_half, Arc::clone(&top)));
+            let _ = tokio::join!(h1, h2, h3);
         }
-    });
-
-    let top_for_tick = Arc::clone(&top);
-    let tick_task = tokio::task::spawn_blocking(move || loop {
-        let (sim_err, cycles) = {
-            let mut top_guard = top_for_tick.blocking_lock();
-            let state = top_guard.tick();
-            let cycles = top_guard.cycles_elapsed();
-            (state, cycles)
-        };
-
-        let completion = {
-            let mut top_guard = top_for_tick.blocking_lock();
-            top_guard.get_completion()
-        };
-
-        if let Some(completion) = completion {
-            println!("Completion: {:?}", completion);
+        Err(err) => {
+            eprintln!("Failed to accept connection: {err}");
         }
-
-        if sim_err.is_err() {
-            break (sim_err, cycles);
-        }
-    });
-
-    let (sim_err, cycles) = tick_task.await?;
-
-    match sim_err {
-        Err(gluon::common::base::SimErr::TIMEOUT) => print!("Timeout {cycles} cycles"),
-        _ => sim_err.expect("Sim exit"),
     }
 
-    server_task.abort();
-    let _ = server_task.await;
     if Path::new(&socket_path).exists() {
         let _ = fs::remove_file(&socket_path);
     }

@@ -116,7 +116,7 @@ pub struct ThreadBlock {
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Event {
-    bytes: [u8; 16],
+    pub bytes: [u8; 16],
 }
 
 impl Event {
