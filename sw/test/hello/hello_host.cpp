@@ -13,5 +13,6 @@ int main() {
     radGetError(&err);
     printf("Error: %d\n", err.err_code);
     printf("Command ID: %d\n", err.cmd_id);
+    printf("PC: %d\n", err.pc);
     return 0;
 }
