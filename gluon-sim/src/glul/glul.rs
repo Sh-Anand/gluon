@@ -140,14 +140,30 @@ impl Clocked for GLUL {
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
                 let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
                 let cores_per_tb = self.status.config.num_cores / thread_blocks.grid_idx.len() as usize;
-                (0..thread_blocks.grid_idx.len() as u32).for_each(|tb_idx| {
-                    let core_start = tb_idx * cores_per_tb as u32;
-                    let core_end = core_start + cores_per_tb as u32;
+                let mut block_idx = (0, 0, 0);
+                thread_blocks.grid_idx.iter().enumerate().for_each(|(tb_idx, grid_idx)| {
+                    let core_start = tb_idx * cores_per_tb;
+                    let core_end = core_start + cores_per_tb;
                     (core_start..core_end).for_each(|core_idx| {
+                        let mut block_idxs = Vec::new();
+                        for _ in 0..warps_per_core {
+                            let mut warp_block_idxs = Vec::new();
+                            for _ in 0..self.status.config.num_lanes {
+                                warp_block_idxs.push(block_idx);
+                                block_idx.0 = (block_idx.0 + 1) % thread_blocks.block_dim.0 as u16;
+                                if block_idx.0 == 0 {
+                                    block_idx.1 = (block_idx.1 + 1) % thread_blocks.block_dim.1 as u16;
+                                    if block_idx.1 == 0 {
+                                        block_idx.2 = (block_idx.2 + 1) % thread_blocks.block_dim.2 as u16;
+                                    }
+                                }
+                            }
+                            block_idxs.push(warp_block_idxs);
+                        }
                         self.cores
-                            .get_mut(core_idx as usize)
+                            .get_mut(core_idx)
                             .expect("Core index out of bounds")
-                            .spawn_n_warps(thread_blocks.pc, warps_per_core as usize);
+                            .spawn_n_warps(thread_blocks.pc, grid_idx.clone(), block_idxs);
                     });
                 });
                 self.state = GLULState::S2;
