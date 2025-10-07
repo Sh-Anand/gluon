@@ -330,6 +330,13 @@ void radGetError(radError *err) {
     if (response) {
         err->cmd_id = response->at(0);
         err->err_code = static_cast<radErrorCode>(response->at(1));
+        uint32_t pc = static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(2))) |
+                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(3))) << 8) |
+                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(4))) << 16) |
+                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(5))) << 24);
+        auto offset = rad::translate_dev_addr(pc);
+        err->pc = pc;
+        err->pc = offset ? *offset : 0;
         return;
     }
 }

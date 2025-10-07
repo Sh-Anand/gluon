@@ -15,6 +15,8 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
 
 std::optional<std::string> ReceiveError();
 
+std::optional<std::uint32_t> translate_dev_addr(std::uint32_t addr);
+
 }
 
 #endif

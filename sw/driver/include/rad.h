@@ -43,6 +43,7 @@ enum radErrorCode {
 struct radError {
     radErrorCode err_code;
     uint8_t cmd_id;
+    uint32_t pc;
 };
 
 struct radParamBuf {

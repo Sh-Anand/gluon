@@ -123,6 +123,19 @@ std::string FormatHex32(std::uint32_t value) {
     oss << "0x" << std::hex << std::setw(8) << std::setfill('0') << value;
     return oss.str();
 }
+
+}
+
+std::optional<std::uint32_t> translate_dev_addr(std::uint32_t addr) {
+    ConnectionState& state = GetState();
+    if (!state.initialized)
+        return std::nullopt;
+    if (addr < GPU_MEM_START_ADDR)
+        return std::nullopt;
+    std::size_t offset = static_cast<std::size_t>(addr - GPU_MEM_START_ADDR);
+    if (offset >= state.shared.size)
+        return std::nullopt;
+    return static_cast<std::uint32_t>(offset);
 }
 
 void ShutdownConnection() {
