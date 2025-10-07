@@ -18,6 +18,7 @@ pub enum MemEngineState {
     I, 
     C0,
     C1,
+    C2,
     S0,
     S1,
 }
@@ -134,7 +135,7 @@ impl Engine for MemEngine {
     }
 
     fn done_dma_req(&mut self) {
-        self.dma_req.expect("Mem engine: DMA req not set").done = true;
+        self.dma_req.as_mut().expect("Mem engine: DMA req not set").done = true;
     }
 
     fn get_mem_req(&self) -> Option<&MemReq> {
@@ -199,7 +200,6 @@ impl Clocked for MemEngine {
                             self.state = MemEngineState::S0;
                         }
                     }
-                    self.err = None;
                     info!(self.logger, "Mem engine: command {:?}", cmd.0);
                 }
             }
@@ -219,13 +219,21 @@ impl Clocked for MemEngine {
             MemEngineState::C1 => {
                 if let Some(dma_req) = &self.dma_req {
                     if dma_req.done {
-                        self.cmd = None;
                         self.dma_req = None;
-                        self.state = MemEngineState::I;
+                        self.state = MemEngineState::C2;
                         self.err = Some(Ok(()));
                         info!(self.logger, "Mem engine: DMA req done");
                     }
                 }
+            }
+            MemEngineState::C2 => {
+                assert!(self.dma_req.is_none(), "Mem engine: C2: DMA req should be unset");
+                assert!(self.mem_req.is_none(), "Mem engine: C2: Mem req should be unset");
+                assert!(self.mem_resp.is_none(), "Mem engine: C2: Mem resp should be unset");
+                self.cmd = None;
+                self.state = MemEngineState::I;
+                self.err = None;
+                
             }
             MemEngineState::S0 => {
                 let set_cmd = SetCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").0.bytes);

@@ -195,7 +195,7 @@ impl Engine for KernelEngine {
     }
 
     fn done_dma_req(&mut self) {
-        self.dma_req.expect("Kernel engine: DMA req not set").done = true;
+        self.dma_req.as_mut().expect("Kernel engine: DMA req not set").done = true;
     }
 
     fn get_mem_req(&self) -> Option<&MemReq> {
@@ -274,7 +274,7 @@ impl Clocked for KernelEngine {
                     }
                 } else {
                     let mut dma_req = DMAReq::default();
-                    dma_req.done = true;
+                    dma_req.done = false;
                     dma_req.dir = DMADir::H2D;
                     dma_req.src_addr = self
                         .cmd

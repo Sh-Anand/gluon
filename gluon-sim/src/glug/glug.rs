@@ -187,7 +187,7 @@ impl Clocked for GLUG {
                                 .expect("gmem write errored")
                         });
 
-                    info!(self.logger, "Served DMA req {:?}", dma_req);
+                    //info!(self.logger, "Served DMA req {:?}", dma_req);
                 }
 
                 DMADir::D2H => {
