@@ -7,7 +7,6 @@ RISCV_TRIPLE := riscv32-unknown-elf
 RISCV_SYSROOT := $(MUON_32)/$(RISCV_TRIPLE)
 RISCV_FLAGS := --target=$(RISCV_TRIPLE) -march=rv32im_zfinx -mabi=ilp32 --sysroot=$(RISCV_SYSROOT)
 CLANG_RESOURCE_DIR := $(shell $(MUON_CLANG) --target=$(RISCV_TRIPLE) -print-resource-dir)
-CLANG_RT_LIB := $(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
 
 TEST ?= hello
 TEST_DIR := $(TEST)
@@ -29,9 +28,12 @@ HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
 
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
+KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax \
+    -L$(MUON_32)/lib/$(RISCV_TRIPLE) -L$(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
 LIBMUON_A := $(LIBMUON_DIR)/libmuon.a
+KERNEL_LIBS := $(LIBMUON_A) -lc -lm $(CLANG_RT_LIB)
 
 .PHONY: all run clean
 
@@ -50,7 +52,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
-	$(MUON_CLANG) $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -o $@ $< $(LIBMUON_A) $(CLANG_RT_LIB)
+	$(MUON_CLANG) $(KERNEL_LDFLAGS) -o $@ $< $(LIBMUON_A) -lc -lm $(MUON_32)/lib/clang/18/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
 
 $(KERNEL_DISASM): $(KERNEL_ELF)
 	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) $< > $@
