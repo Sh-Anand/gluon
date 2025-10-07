@@ -320,3 +320,16 @@ void radMalloc(void **ptr, size_t bytes) {
     std::uintptr_t value = static_cast<std::uintptr_t>(*device_addr);
     *ptr = reinterpret_cast<void *>(value);
 }
+
+void radGetError(radError *err) {
+    if (err == nullptr)
+        return;
+    auto response = rad::ReceiveError();
+    if (!response)
+        fprintf(stderr, "radGetError: failed to receive error\n");
+    if (response) {
+        err->cmd_id = response->at(0);
+        err->err_code = static_cast<radErrorCode>(response->at(1));
+        return;
+    }
+}

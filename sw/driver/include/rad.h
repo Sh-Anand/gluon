@@ -35,6 +35,16 @@ enum radMemCmdType {
     radMemCmdType_SET,
 };
 
+enum radErrorCode {
+    radError_NONE,
+    radError_EXECUTION,
+};
+
+struct radError {
+    radErrorCode err_code;
+    uint8_t cmd_id;
+};
+
 struct radParamBuf {
     std::vector<std::uint8_t> storage;
     std::size_t offset = 0;
@@ -75,5 +85,7 @@ void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_di
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir);
 
 void radMalloc(void **ptr, size_t bytes);
+
+void radGetError(radError *err);
 
 #endif  // RADIANCE_DRIVER_H

@@ -300,15 +300,28 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
         std::cerr << "Failed to send command: " << std::strerror(errno) << '\n';
         return std::nullopt;
     }
+    return std::string("OK");
+}
+
+std::optional<std::string> ReceiveError() {
+    ConnectionState& state = GetState();
+    if (!state.initialized) {
+        return std::nullopt;
+    }
     char buffer[1024] = {0};
     ssize_t received = ::recv(state.sock, buffer, sizeof(buffer) - 1, 0);
     if (received == -1) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return std::nullopt;
+        }
         std::cerr << "Failed to receive data: " << std::strerror(errno) << '\n';
         return std::nullopt;
     }
-    std::string response(buffer, received > 0 ? static_cast<size_t>(received) : 0);
-    std::cout << "Received response: " << response << "\n";
-    return response;
+    if (received == 0) {
+        ShutdownConnection();
+        return std::nullopt;
+    }
+    return std::string(buffer, static_cast<std::size_t>(received));
 }
 
 }  // namespace rad

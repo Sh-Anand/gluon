@@ -13,6 +13,8 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
                                          const void* payload,
                                          std::size_t payload_size);
 
+std::optional<std::string> ReceiveError();
+
 }
 
 #endif
