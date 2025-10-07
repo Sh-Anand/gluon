@@ -216,30 +216,6 @@ impl GLUL {
     }
 
     pub fn submit_thread_block(&mut self, thread_block: ThreadBlock, n_tb: u32, engine_idx: usize) {
-        let mut instructions = [0u64; 8];
-        {
-            let mut dram = self.dram.write().expect("GLUL dram poisoned");
-            let base = thread_block.pc;
-            for (idx, word) in instructions.iter_mut().enumerate() {
-                let mut bytes = [0u8; 8];
-                for offset in 0..8 {
-                    bytes[offset] = dram
-                        .read_byte((base + (idx as u32) * 8 + offset as u32) as usize)
-                        .expect("Instruction fetch failed");
-                }
-                *word = u64::from_le_bytes(bytes);
-            }
-        }
-        for (idx, word) in instructions.iter().enumerate() {
-            let pc = thread_block.pc + (idx as u32) * 8;
-            info!(
-                self.logger,
-                "Instruction {} @ {:#010x}: {:#018x}",
-                idx,
-                pc,
-                word
-            );
-        }
         info!(
             self.logger,
             "Submitting {} thread blocks {:?} to GLUL {:?}", n_tb, thread_block, self.status.config
