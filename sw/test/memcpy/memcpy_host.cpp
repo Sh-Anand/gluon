@@ -12,5 +12,9 @@ int main() {
     memset(src, 5, bytes);
     radMemCpy(dst, src, bytes, radMemCpyDir_H2D);
     free(src);
+    radError err;
+    radGetError(&err);
+    printf("Error: %d\n", err.err_code);
+    printf("Command ID: %d\n", err.cmd_id);
     return 0;
 }

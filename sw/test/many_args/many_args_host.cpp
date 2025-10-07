@@ -17,5 +17,9 @@ int main() {
     params.push(9);
     params.push(10);
     radKernelLaunch("hello_args_kernel", grid, block, &params);
+    radError err;
+    radGetError(&err);
+    printf("Error: %d\n", err.err_code);
+    printf("Command ID: %d\n", err.cmd_id);
     return 0;
 }
