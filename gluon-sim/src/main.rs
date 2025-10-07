@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -91,18 +90,18 @@ async fn receive_shared_memory_region(stream: &UnixStream) -> io::Result<SharedM
     loop {
         stream.readable().await?;
         match recv_memfd(stream.as_raw_fd()) {
-            Ok(fd) => return SharedMemoryRegion::from_owned_fd(fd),
+            Ok((fd, base)) => return SharedMemoryRegion::from_owned_fd(fd, base),
             Err(err) if err.kind() == ErrorKind::WouldBlock => continue,
             Err(err) => return Err(err),
         }
     }
 }
 
-fn recv_memfd(socket_fd: RawFd) -> io::Result<OwnedFd> {
+fn recv_memfd(socket_fd: RawFd) -> io::Result<(OwnedFd, usize)> {
     const CMSG_BUFFER_LEN: usize =
         unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize };
 
-    let mut data_buf = [0u8; 1];
+    let mut data_buf = [0u8; std::mem::size_of::<u64>()];
     let mut cmsg_buffer = [0u8; CMSG_BUFFER_LEN];
 
     loop {
@@ -133,6 +132,13 @@ fn recv_memfd(socket_fd: RawFd) -> io::Result<OwnedFd> {
             ));
         }
 
+        if received as usize != data_buf.len() {
+            return Err(io::Error::new(
+                ErrorKind::InvalidData,
+                "shared memory base missing",
+            ));
+        }
+
         let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
         while !cmsg.is_null() {
             let hdr = unsafe { &*cmsg };
@@ -140,7 +146,10 @@ fn recv_memfd(socket_fd: RawFd) -> io::Result<OwnedFd> {
                 let data = unsafe { libc::CMSG_DATA(cmsg) as *const RawFd };
                 if !data.is_null() {
                     let fd = unsafe { *data };
-                    return Ok(unsafe { OwnedFd::from_raw_fd(fd) });
+                    let mut base_bytes = [0u8; std::mem::size_of::<u64>()];
+                    base_bytes.copy_from_slice(&data_buf);
+                    let base = u64::from_le_bytes(base_bytes) as usize;
+                    return Ok((unsafe { OwnedFd::from_raw_fd(fd) }, base));
                 }
             }
 
@@ -162,49 +171,13 @@ async fn handle_client(
     println!("Client connected: {addr:?}");
 
     let shared_memory = receive_shared_memory_region(&stream).await?;
+    println!("Shared memory region: {:?}", shared_memory);
 
     loop {
         let mut buffer = [0_u8; 16];
         match stream.read_exact(&mut buffer).await {
             Ok(_) => {
-                let mut raw_cmd = buffer;
-
-                if raw_cmd[0] == 0 {
-                    let host_offset =
-                        raw_cmd[2..6]
-                            .try_into()
-                            .map(u32::from_le_bytes)
-                            .map_err(|_| {
-                                io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    "kernel command missing host address",
-                                )
-                            })?;
-
-                    let payload_size =
-                        raw_cmd[6..10]
-                            .try_into()
-                            .map(u32::from_le_bytes)
-                            .map_err(|_| {
-                                io::Error::new(
-                                    ErrorKind::InvalidData,
-                                    "kernel command missing payload size",
-                                )
-                            })?;
-
-                    let mapped_addr = shared_memory
-                        .pointer_value(host_offset, payload_size)
-                        .map_err(|err| {
-                            io::Error::new(
-                                ErrorKind::InvalidData,
-                                format!("failed to obtain shared memory pointer value: {err}"),
-                            )
-                        })?;
-
-                    raw_cmd[2..6].copy_from_slice(&mapped_addr.to_le_bytes());
-                }
-
-                let command = Command::from_bytes(raw_cmd);
+                let command = Command::from_bytes(buffer);
 
                 let sim_err = {
                     let mut top_guard = top.lock().await;

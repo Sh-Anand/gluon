@@ -1,4 +1,5 @@
 #include "driver.h"
+#include "rad.h"
 
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -13,6 +14,7 @@
 #include <fcntl.h>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -74,9 +76,9 @@ std::optional<std::string> LoadSocketPath() {
     return socket_path;
 }
 
-bool SendFileDescriptor(int sock, int fd) {
+bool SendFileDescriptor(int sock, int fd, std::uintptr_t addr) {
     struct ::msghdr msg = {};
-    unsigned char buffer = 0;
+    std::uint64_t buffer = static_cast<std::uint64_t>(addr);
     struct ::iovec iov;
     iov.iov_base = &buffer;
     iov.iov_len = sizeof(buffer);
@@ -232,7 +234,7 @@ bool InitConnection(std::size_t shared_mem_bytes) {
         ::close(sock);
         return false;
     }
-    if (!SendFileDescriptor(sock, region.fd)) {
+    if (!SendFileDescriptor(sock, region.fd, reinterpret_cast<std::uintptr_t>(region.addr))) {
         region.Reset();
         ::close(sock);
         return false;
@@ -268,6 +270,7 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
         std::cerr << "Command payload size exceeds shared memory size\n";
         return std::nullopt;
     }
+    std::array<std::uint8_t, 16> header_bytes = header;
     if (payload_size > 0) {
         if (!payload) {
             std::cerr << "Command payload missing data pointer\n";
@@ -275,11 +278,25 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
         }
         std::memcpy(state.shared.addr, payload, payload_size);
     }
-    std::cout << "Submitting command (id=" << static_cast<int>(header[1])
+    std::uintptr_t shared_base = reinterpret_cast<std::uintptr_t>(state.shared.addr);
+    if (shared_base > std::numeric_limits<std::uint32_t>::max()) {
+        std::cerr << "Shared memory address exceeds 32-bit range\n";
+        return std::nullopt;
+    }
+    std::uint32_t shared_base_u32 = static_cast<std::uint32_t>(shared_base);
+    if (header_bytes[1] == radCmdType_MEM) {
+        if (header_bytes[15] == radMemCpyDir_H2D) {
+            std::memcpy(header_bytes.data() + 3, &shared_base_u32, sizeof(shared_base_u32));
+        } else {
+            std::memcpy(header_bytes.data() + 7, &shared_base_u32, sizeof(shared_base_u32));
+        }
+    } else if (header_bytes[1] == radCmdType_KERNEL) {
+        std::memcpy(header_bytes.data() + 2, &shared_base_u32, sizeof(shared_base_u32));
+    }
+    std::cout << "Submitting command (id=" << static_cast<int>(header_bytes[0])
               << ", size=" << payload_size
               << ")\n";
-    
-    if (!SendAll(state.sock, header.data(), header.size())) {
+    if (!SendAll(state.sock, header_bytes.data(), header_bytes.size())) {
         std::cerr << "Failed to send command: " << std::strerror(errno) << '\n';
         return std::nullopt;
     }

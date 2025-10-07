@@ -186,6 +186,8 @@ impl Clocked for GLUG {
                             dram.write_byte((dma_req.target_addr + idx as u32) as usize, byte)
                                 .expect("gmem write errored")
                         });
+
+                    info!(self.logger, "Served DMA req {:?}", dma_req);
                 }
 
                 DMADir::D2H => {
