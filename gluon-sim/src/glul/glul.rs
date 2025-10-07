@@ -13,7 +13,7 @@ use cyclotron::{
 };
 use serde::Deserialize;
 
-use crate::common::base::{Clocked, Configurable, SimErr, ThreadBlock};
+use crate::common::base::{Clocked, Configurable, SimErr, ThreadBlocks};
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
@@ -48,10 +48,9 @@ impl GLULConfig {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone)]
 pub struct GLULReq {
-    pub thread_block: ThreadBlock,
-    pub n_tb: u32,
+    pub thread_blocks: Option<ThreadBlocks>,
     pub idx: usize,
 }
 
@@ -85,8 +84,7 @@ pub struct GLUL {
     logger: Arc<Logger>,
 
     state: GLULState,
-    thread_block: ThreadBlock,
-    n_tb: u32,
+    thread_blocks: Option<ThreadBlocks>,
     engine_idx: usize,
 
     dram: Arc<RwLock<ToyMemory>>,
@@ -113,8 +111,7 @@ impl Configurable<GLULConfig> for GLUL {
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger,
             state: GLULState::S0,
-            thread_block: ThreadBlock::default(),
-            n_tb: 0,
+            thread_blocks: None,
             engine_idx: 0,
             done: false,
             err: Ok(()),
@@ -127,7 +124,7 @@ impl Clocked for GLUL {
     fn tick(&mut self) -> Result<(), SimErr> {
         match self.state {
             GLULState::S0 => {
-                if self.n_tb > 0 {
+                if self.thread_blocks.is_some() {
                     *self.status.busy.write().expect("GLUL busy poisoned") = true;
                     self.done = false;
                     self.cores.iter_mut().for_each(|core| core.reset());
@@ -136,20 +133,21 @@ impl Clocked for GLUL {
                 }
             }
             GLULState::S1 => {
-                let threads_per_tb = self.thread_block.dim.0 as u32
-                    * self.thread_block.dim.1 as u32
-                    * self.thread_block.dim.2 as u32;
+                let thread_blocks = self.thread_blocks.as_ref().expect("Thread blocks not set");
+                let threads_per_tb = thread_blocks.block_dim.0 as u32
+                    * thread_blocks.block_dim.1 as u32
+                    * thread_blocks.block_dim.2 as u32;
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
                 let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
-                let cores_per_tb = self.status.config.num_cores / self.n_tb as usize;
-                (0..self.n_tb).for_each(|tb_idx| {
+                let cores_per_tb = self.status.config.num_cores / thread_blocks.grid_idx.len() as usize;
+                (0..thread_blocks.grid_idx.len() as u32).for_each(|tb_idx| {
                     let core_start = tb_idx * cores_per_tb as u32;
                     let core_end = core_start + cores_per_tb as u32;
                     (core_start..core_end).for_each(|core_idx| {
                         self.cores
                             .get_mut(core_idx as usize)
                             .expect("Core index out of bounds")
-                            .spawn_n_warps(self.thread_block.pc, warps_per_core as usize);
+                            .spawn_n_warps(thread_blocks.pc, warps_per_core as usize);
                     });
                 });
                 self.state = GLULState::S2;
@@ -206,8 +204,7 @@ impl GLUL {
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger,
             state: GLULState::S0,
-            thread_block: ThreadBlock::default(),
-            n_tb: 0,
+            thread_blocks: None,
             engine_idx: 0,
             done: false,
             err: Ok(()),
@@ -215,13 +212,12 @@ impl GLUL {
         }
     }
 
-    pub fn submit_thread_block(&mut self, thread_block: ThreadBlock, n_tb: u32, engine_idx: usize) {
+    pub fn submit_thread_block(&mut self, thread_blocks: ThreadBlocks, engine_idx: usize) {
         info!(
             self.logger,
-            "Submitting {} thread blocks {:?} to GLUL {:?}", n_tb, thread_block, self.status.config
+            "Submitting {} thread blocks {:?} to GLUL {:?}", thread_blocks.grid_idx.len() as u32, thread_blocks, self.status.config
         );
-        self.thread_block = thread_block;
-        self.n_tb = n_tb;
+        self.thread_blocks = Some(thread_blocks);
         self.engine_idx = engine_idx;
         self.state = GLULState::S1;
     }
@@ -229,8 +225,8 @@ impl GLUL {
     pub fn try_acknowledge_done_err(&mut self) -> Option<Result<(usize, u32), (usize, ExecErr)>> {
         if self.done {
             self.done = false;
-            let n_tb = self.n_tb;
-            self.n_tb = 0;
+            let n_tb = self.thread_blocks.as_ref().expect("Thread blocks not set").grid_idx.len() as u32;
+            self.thread_blocks = None;
             Some(
                 self.err
                     .clone()

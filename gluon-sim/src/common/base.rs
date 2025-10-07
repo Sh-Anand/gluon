@@ -106,11 +106,11 @@ pub struct MemResp {
     pub data: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ThreadBlock {
-    pub id: u32,
+#[derive(Debug, Default, Clone)]
+pub struct ThreadBlocks {
     pub pc: u32,
-    pub dim: (u16, u16, u16),
+    pub grid_idx: Vec<(u16, u16, u16)>,
+    pub block_dim: (u16, u16, u16),
     pub regs: u32,
     pub shmem: u32,
 }

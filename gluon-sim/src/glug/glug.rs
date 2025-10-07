@@ -127,9 +127,9 @@ impl Clocked for GLUG {
             .enumerate()
             .for_each(|(idx, engine)| {
                 if let Some(glul_req) = engine.get_glul_req() {
+                    let thread_blocks = glul_req.thread_blocks.as_ref().expect("Thread blocks not set").clone();
                     self.gluls[glul_req.idx].submit_thread_block(
-                        glul_req.thread_block,
-                        glul_req.n_tb,
+                        thread_blocks,
                         idx,
                     );
                     engine.clear_glul_req();

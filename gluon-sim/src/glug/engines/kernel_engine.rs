@@ -6,7 +6,7 @@ use crate::common::base::Event;
 use crate::common::base::MemReq;
 use crate::common::base::MemResp;
 use crate::common::base::SimErr;
-use crate::common::base::ThreadBlock;
+use crate::common::base::ThreadBlocks;
 use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
 use crate::glul::glul::GLULReq;
@@ -207,7 +207,7 @@ impl Engine for KernelEngine {
     }
 
     fn get_glul_req(&self) -> Option<&GLULReq> {
-        if self.glul_req.n_tb > 0 {
+        if self.glul_req.thread_blocks.is_some() {
             Some(&self.glul_req)
         } else {
             None
@@ -215,7 +215,7 @@ impl Engine for KernelEngine {
     }
 
     fn clear_glul_req(&mut self) {
-        self.glul_req.n_tb = 0;
+        self.glul_req.thread_blocks = None;
     }
 
     fn notify_glul_done(&mut self, tbs: u32) {
@@ -358,17 +358,27 @@ impl Clocked for KernelEngine {
                         .filter(|(_, value)| *value > 0)
                         .min_by_key(|(_, value)| *value)
                     {
-                        self.glul_req.n_tb = (n_tb as u32).min(available_tbs);
-                        self.glul_req.thread_block = ThreadBlock {
-                            id: self.tb_ctr,
+                        let n_tb_req = (n_tb as u32).min(available_tbs);
+                        let mut grid_idxs = Vec::new();
+                        for _ in 0..n_tb_req {
+                            let gx = self.kernel_payload.grid.0 as u32;
+                            let gy = self.kernel_payload.grid.1 as u32;
+                            let plane = gx * gy;
+                            let block_z = self.tb_ctr / plane;
+                            let rem = self.tb_ctr % plane;
+                            let block_y = rem / gx;
+                            let block_x = rem % gx;
+                            grid_idxs.push((block_x as u16, block_y as u16, block_z as u16));
+                            self.tb_ctr += 1;
+                        }
+                        self.glul_req.thread_blocks = Some(ThreadBlocks {
                             pc: self.kernel_payload.start_pc,
-                            dim: self.kernel_payload.block,
+                            grid_idx: grid_idxs,
+                            block_dim: self.kernel_payload.block,
                             regs: self.kernel_payload.regs_per_thread as u32,
                             shmem: self.kernel_payload.shmem_per_block as u32,
-                        };
+                        });
                         self.glul_req.idx = glul_if_idx;
-
-                        self.tb_ctr += self.glul_req.n_tb as u32;
                     }
                 }
 
