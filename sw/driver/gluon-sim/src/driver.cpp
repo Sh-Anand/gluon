@@ -118,12 +118,6 @@ bool SendAll(int fd, const std::uint8_t* data, std::size_t size) {
     return true;
 }
 
-std::string FormatHex32(std::uint32_t value) {
-    std::ostringstream oss;
-    oss << "0x" << std::hex << std::setw(8) << std::setfill('0') << value;
-    return oss.str();
-}
-
 }
 
 std::optional<std::uint32_t> translate_dev_addr(std::uint32_t addr) {
