@@ -338,6 +338,9 @@ impl Clocked for KernelEngine {
                 let available_tbs = self.total_tb - self.tb_ctr;
 
                 if available_tbs > 0 {
+                    let threads_per_block = self.kernel_payload.block.0 as u32
+                        * self.kernel_payload.block.1 as u32
+                        * self.kernel_payload.block.2 as u32;
                     if let Some((glul_if_idx, n_tb)) = self
                         .gluls
                         .iter()
@@ -345,10 +348,12 @@ impl Clocked for KernelEngine {
                         .enumerate()
                         .map(|(idx, glul)| {
                             let glul_cfg = glul.config;
+                            let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
+                            let cores_per_tb = (warps_per_tb as f32 / glul_cfg.num_warps as f32).ceil() as usize;
                             (
                                 idx,
-                                glul_cfg.num_cores * glul_cfg.num_warps * glul_cfg.num_lanes
-                                    / (self.tb_size as usize).min(
+                                (glul_cfg.num_cores
+                                    / cores_per_tb).min(
                                         glul_cfg.regs_per_core * glul_cfg.num_cores
                                             / (self.kernel_payload.regs_per_thread as usize
                                                 * glul_cfg.num_lanes)

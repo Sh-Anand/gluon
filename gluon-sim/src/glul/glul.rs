@@ -138,8 +138,8 @@ impl Clocked for GLUL {
                     * thread_blocks.block_dim.1 as u32
                     * thread_blocks.block_dim.2 as u32;
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
-                let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
-                let cores_per_tb = self.status.config.num_cores / thread_blocks.block_idxs.len() as usize;
+                let cores_per_tb = (warps_per_tb as f32 / self.status.config.num_warps as f32).ceil() as usize;
+                let warps_per_core = warps_per_tb / cores_per_tb as u32;
                 let mut thread_idx = (0, 0, 0);
                 thread_blocks.block_idxs.iter().enumerate().for_each(|(tb_idx, block_idx)| {
                     let core_start = tb_idx * cores_per_tb;
