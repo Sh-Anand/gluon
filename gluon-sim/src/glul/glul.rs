@@ -93,33 +93,6 @@ pub struct GLUL {
     err: Result<(), ExecErr>,
 }
 
-impl Configurable<GLULConfig> for GLUL {
-    fn new(config: GLULConfig) -> Self {
-        let muon_config = MuonConfig {
-            num_cores: config.num_cores,
-            num_warps: config.num_warps,
-            num_lanes: config.num_lanes,
-            lane_config: LaneConfig::default(),
-        };
-        let logger = Arc::new(Logger::new(0));
-        let dram = Arc::new(RwLock::new(ToyMemory::default()));
-        GLUL {
-            status: GLULStatus::new(config),
-            cores: (0..config.num_cores)
-                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()), false))
-                .collect(),
-            neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
-            logger,
-            state: GLULState::S0,
-            thread_blocks: None,
-            engine_idx: 0,
-            done: false,
-            err: Ok(()),
-            dram: Arc::new(RwLock::new(ToyMemory::default())),
-        }
-    }
-}
-
 impl Clocked for GLUL {
     fn tick(&mut self) -> Result<(), SimErr> {
         match self.state {
