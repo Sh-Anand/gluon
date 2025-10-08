@@ -252,12 +252,21 @@ void radKernelLaunch(const char *kernel_name,
     }
     uint32_t stack_base_addr = *stack_base_addr_opt + KERNEL_STACK_SIZE - 4;
 
+    // allocate tls space
+    auto tls_base_addr_opt = allocateDeviceMemory(KERNEL_TLS_SIZE);
+    if (!tls_base_addr_opt) {
+        fprintf(stderr, "radKernelLaunch: failed to allocate tls space on gpu\n");
+        return;
+    }
+    uint32_t tls_base_addr = *tls_base_addr_opt;
+
     BufferWriter writer{payload.get(), payload.get() + payload_size};
     if (!writer.write_u32(gpu_mem_start_pc) ||
         !writer.write_u32(gpu_mem_kernel_pc) ||
         !writer.write_u32(static_cast<std::uint32_t>(params_size + param_padding)) ||
         !writer.write_u32(static_cast<std::uint32_t>(kernel_binary->size)) ||
         !writer.write_u32(stack_base_addr) ||
+        !writer.write_u32(tls_base_addr) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.x)) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.y)) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.z)) ||
