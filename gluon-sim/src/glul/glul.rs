@@ -79,7 +79,7 @@ pub enum GLULState {
 
 pub struct GLUL {
     status: GLULStatus,
-    cores: Vec<MuonCore>,
+    cores: Vec<(MuonCore, bool)>, // core, scheduled
     neutrino: Neutrino,
     logger: Arc<Logger>,
 
@@ -106,7 +106,7 @@ impl Configurable<GLULConfig> for GLUL {
         GLUL {
             status: GLULStatus::new(config),
             cores: (0..config.num_cores)
-                .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
+                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()), false))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger,
@@ -127,7 +127,7 @@ impl Clocked for GLUL {
                 if self.thread_blocks.is_some() {
                     *self.status.busy.write().expect("GLUL busy poisoned") = true;
                     self.done = false;
-                    self.cores.iter_mut().for_each(|core| core.reset());
+                    self.cores.iter_mut().for_each(|(core, _)| core.reset());
                     self.neutrino.reset();
                     self.state = GLULState::S1;
                 }
@@ -164,16 +164,15 @@ impl Clocked for GLUL {
                             self.logger,
                             "Spawning block_idx{:?} warps{:?} to core {:?}", block_idx, thread_idxs, core_idx
                         );
-                        self.cores
-                            .get_mut(core_idx)
-                            .expect("Core index out of bounds")
-                            .spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs);
+                        let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
+                        core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs);
+                        core.1 = true;
                     });
                 });
                 self.state = GLULState::S2;
             }
             GLULState::S2 => {
-                self.cores.iter_mut().for_each(|core| {
+                self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).for_each(|core| {
                     core.tick_one();
                     if let Err(e) = core.execute(&mut self.neutrino) {
                         self.err = Err(e);
@@ -182,9 +181,9 @@ impl Clocked for GLUL {
                 });
                 self.neutrino.tick_one();
                 self.neutrino
-                    .update(&mut self.cores.iter_mut().map(|c| &mut c.scheduler).collect());
+                    .update(&mut self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| &mut core.scheduler).collect());
 
-                if self.cores.iter().all(|core| core.all_warps_retired()) {
+                if self.cores.iter().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).all(|core| core.all_warps_retired()) {
                     self.err = Ok(());
                     self.state = GLULState::S3;
                 }
@@ -192,6 +191,7 @@ impl Clocked for GLUL {
             GLULState::S3 => {
                 self.done = true;
                 self.state = GLULState::S0;
+                self.cores.iter_mut().for_each(|(_, scheduled)| *scheduled = false);
                 *self.status.busy.write().expect("GLUL busy poisoned") = false;
             }
         };
@@ -219,7 +219,7 @@ impl GLUL {
         GLUL {
             status: GLULStatus::new(config),
             cores: (0..config.num_cores)
-                .map(|i| MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()))
+                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()), false))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger,
