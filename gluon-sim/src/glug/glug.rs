@@ -7,6 +7,7 @@ use crate::glul::glul::{GLULConfig, GLUL};
 use cyclotron::info;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::toy_mem::ToyMemory;
+use cyclotron::sim::config::MemConfig;
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
 
@@ -54,7 +55,9 @@ impl Configurable<GLUGConfig> for GLUG {
         let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
-        let dram = Arc::new(RwLock::new(ToyMemory::default()));
+        let mut toy_mem = ToyMemory::default();
+        toy_mem.set_config(MemConfig::default());
+        let dram = Arc::new(RwLock::new(toy_mem));
         let logger = Arc::new(Logger::new(config.log_level));
 
         let gluls = glul_configs
