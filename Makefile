@@ -9,6 +9,8 @@ TEST ?= $(DEFAULT_TEST)
 RUST_MANIFEST := gluon-sim/Cargo.toml
 DRIVER_BIN := sw/test/build/$(TEST)/$(TEST)
 
+RUST_LOG ?= info
+
 TEST_DIRS := $(wildcard sw/test/*/)
 TESTS := $(filter-out sw/test/build/,$(TEST_DIRS))
 TEST_NAMES := $(patsubst %/,%,$(patsubst sw/test/%,%,$(TESTS)))
@@ -17,7 +19,7 @@ TEST_NAMES := $(patsubst %/,%,$(patsubst sw/test/%,%,$(TESTS)))
 
 run: server driver
 	@set -euo pipefail; \
-	RUST_LOG=debug $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
+	RUST_LOG=$(RUST_LOG) $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
 	SERVER_PID=$$!; \
 	trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	sleep 1; \
@@ -45,7 +47,7 @@ $(TEST_NAMES):
 	@set -euo pipefail; \
 	$(MAKE) -C sw/test TEST=$@ CPPFLAGS=; \
 	$(CARGO) build --manifest-path $(RUST_MANIFEST); \
-	RUST_LOG=debug $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
+	RUST_LOG=$(RUST_LOG) $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
 	SERVER_PID=$$!; \
 	trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	sleep 1; \
