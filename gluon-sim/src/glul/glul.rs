@@ -134,9 +134,9 @@ impl Clocked for GLUL {
             }
             GLULState::S1 => {
                 let thread_blocks = self.thread_blocks.as_ref().expect("Thread blocks not set");
-                let threads_per_tb = thread_blocks.block_dim.0 as u32
-                    * thread_blocks.block_dim.1 as u32
-                    * thread_blocks.block_dim.2 as u32;
+                let threads_per_tb = thread_blocks.block_dim.0
+                    * thread_blocks.block_dim.1
+                    * thread_blocks.block_dim.2;
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
                 let cores_per_tb = (warps_per_tb as f32 / self.status.config.num_warps as f32).ceil() as usize;
                 let warps_per_core = warps_per_tb / cores_per_tb as u32;
@@ -150,11 +150,11 @@ impl Clocked for GLUL {
                             let mut warp_thread_idxs = Vec::new();
                             for _ in 0..self.status.config.num_lanes {
                                 warp_thread_idxs.push(thread_idx);
-                                thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0 as u16;
+                                thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0;
                                 if block_idx.0 == 0 {
-                                    thread_idx.1 = (thread_idx.1 + 1) % thread_blocks.block_dim.1 as u16;
+                                    thread_idx.1 = (thread_idx.1 + 1) % thread_blocks.block_dim.1;
                                     if thread_idx.1 == 0 {
-                                        thread_idx.2 = (thread_idx.2 + 1) % thread_blocks.block_dim.2 as u16;
+                                        thread_idx.2 = (thread_idx.2 + 1) % thread_blocks.block_dim.2;
                                     }
                                 }
                             }

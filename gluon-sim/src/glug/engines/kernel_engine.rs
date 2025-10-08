@@ -67,8 +67,8 @@ pub struct KernelPayload {
     params_sz: u32,
     binary_sz: u32,
     stack_base_addr: u32,
-    grid: (u16, u16, u16),
-    block: (u16, u16, u16),
+    grid: (u32, u32, u32),
+    block: (u32, u32, u32),
     regs_per_thread: u8,
     shmem_per_block: u32,
     flags: u8,
@@ -101,19 +101,19 @@ impl KernelPayload {
         let binary_sz = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         let stack_base_addr = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
         let grid = (
-            u16::from_le_bytes([bytes[20], bytes[21]]),
-            u16::from_le_bytes([bytes[22], bytes[23]]),
-            u16::from_le_bytes([bytes[24], bytes[25]]),
+            u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
+            u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
+            u32::from_le_bytes([bytes[28], bytes[29], bytes[30], bytes[31]]),
         );
         let block = (
-            u16::from_le_bytes([bytes[26], bytes[27]]),
-            u16::from_le_bytes([bytes[28], bytes[29]]),
-            u16::from_le_bytes([bytes[30], bytes[31]]),
+            u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]),
+            u32::from_le_bytes([bytes[36], bytes[37], bytes[38], bytes[39]]),
+            u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
         );
-        let regs_per_thread = bytes[32];
-        let shmem_per_block = u32::from_le_bytes([bytes[33], bytes[34], bytes[35], bytes[36]]);
-        let flags = bytes[37];
-        let printf_host_addr = u32::from_le_bytes([bytes[38], bytes[39], bytes[40], bytes[41]]);
+        let printf_host_addr = u32::from_le_bytes([bytes[44], bytes[45], bytes[46], bytes[47]]);
+        let regs_per_thread = bytes[48];
+        let shmem_per_block = u32::from_le_bytes([bytes[49], bytes[50], bytes[51], bytes[52]]);
+        let flags = bytes[53];
         KernelPayload {
             start_pc,
             kernel_pc,
@@ -370,14 +370,14 @@ impl Clocked for KernelEngine {
                         let n_tb_req = (n_tb as u32).min(available_tbs);
                         let mut block_idxs = Vec::new();
                         for _ in 0..n_tb_req {
-                            let gx = self.kernel_payload.grid.0 as u32;
-                            let gy = self.kernel_payload.grid.1 as u32;
+                            let gx = self.kernel_payload.grid.0;
+                            let gy = self.kernel_payload.grid.1;
                             let plane = gx * gy;
                             let block_z = self.tb_ctr / plane;
                             let rem = self.tb_ctr % plane;
                             let block_y = rem / gx;
                             let block_x = rem % gx;
-                            block_idxs.push((block_x as u16, block_y as u16, block_z as u16));
+                            block_idxs.push((block_x, block_y, block_z));
                             self.tb_ctr += 1;
                         }
                         self.glul_req.thread_blocks = Some(ThreadBlocks {
@@ -385,7 +385,7 @@ impl Clocked for KernelEngine {
                             block_idxs: block_idxs,
                             block_dim: self.kernel_payload.block,
                             regs: self.kernel_payload.regs_per_thread as u32,
-                            shmem: self.kernel_payload.shmem_per_block as u32,
+                            shmem: self.kernel_payload.shmem_per_block,
                         });
                         self.glul_req.idx = glul_if_idx;
                     }
