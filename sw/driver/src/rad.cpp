@@ -171,12 +171,13 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
     static std::uint64_t used = GPU_MEM_START_ADDR;
     static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
+    size_t aligned_bytes = bytes + (bytes % sizeof(uint32_t));
     if (used > capacity)
         return std::nullopt;
     if (bytes > capacity - used)
         return std::nullopt;
     uint32_t addr = static_cast<uint32_t>(used);
-    used += bytes;
+    used += aligned_bytes;
     return addr;
 }
 
