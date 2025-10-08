@@ -9,7 +9,7 @@ TEST ?= $(DEFAULT_TEST)
 RUST_MANIFEST := gluon-sim/Cargo.toml
 DRIVER_BIN := sw/test/build/$(TEST)/$(TEST)
 
-RUST_LOG ?= info
+RUST_LOG ?=
 
 TEST_DIRS := $(wildcard sw/test/*/)
 TESTS := $(filter-out sw/test/build/,$(TEST_DIRS))

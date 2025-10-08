@@ -6,7 +6,7 @@ socket_path = "./gluon-sim.sock"
 timeout_cycles = 0
 
 [glug]
-log_level = 1
+log_level = 0
 
 [[glug.gluls]]
 id = 0
