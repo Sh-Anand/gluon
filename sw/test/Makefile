@@ -55,7 +55,7 @@ $(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_LDFLAGS) -o $@ $< $(LIBMUON_A) -lc -lm $(MUON_32)/lib/clang/18/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
 
 $(KERNEL_DISASM): $(KERNEL_ELF)
-	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) $< > $@
+	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) -M no-aliases $< > $@
 
 $(KERNEL_EMBED_OBJ): $(KERNEL_ELF) $(KERNEL_DISASM) | $(BUILD_DIR)
 	$(MUON_OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
