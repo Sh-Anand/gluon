@@ -243,21 +243,31 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: failed to allocate payload buffer\n");
         return;
     }
+
+    // allocate stack space in GPU mem
+    auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
+    if (!stack_base_addr_opt) {
+        fprintf(stderr, "radKernelLaunch: failed to allocate stack space on gpu\n");
+        return;
+    }
+    uint32_t stack_base_addr = *stack_base_addr_opt + KERNEL_STACK_SIZE - 4;
+
     BufferWriter writer{payload.get(), payload.get() + payload_size};
     if (!writer.write_u32(gpu_mem_start_pc) ||
         !writer.write_u32(gpu_mem_kernel_pc) ||
         !writer.write_u32(static_cast<std::uint32_t>(params_size + param_padding)) ||
         !writer.write_u32(static_cast<std::uint32_t>(kernel_binary->size)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.x)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.y)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(grid_dim.z)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(block_dim.x)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(block_dim.y)) ||
-        !writer.write_u16(static_cast<std::uint16_t>(block_dim.z)) ||
+        !writer.write_u32(stack_base_addr) ||
+        !writer.write_u32(static_cast<std::uint32_t>(grid_dim.x)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(grid_dim.y)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(grid_dim.z)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(block_dim.x)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(block_dim.y)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(block_dim.z)) ||
+        !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
         !writer.write_u8(KERNEL_REGS_PER_THREAD) ||
         !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
         !writer.write_u8(KERNEL_FLAGS) ||
-        !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
         !writer.write_u16(KERNEL_RESERVED_U16) ||
         !writer.write_block(params_data, params_size) ||
         !writer.write_zero(param_padding) ||
