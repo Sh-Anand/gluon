@@ -109,7 +109,7 @@ pub struct MemResp {
 #[derive(Debug, Default, Clone)]
 pub struct ThreadBlocks {
     pub pc: u32,
-    pub grid_idx: Vec<(u16, u16, u16)>,
+    pub block_idxs: Vec<(u16, u16, u16)>,
     pub block_dim: (u16, u16, u16),
     pub regs: u32,
     pub shmem: u32,

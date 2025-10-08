@@ -359,7 +359,7 @@ impl Clocked for KernelEngine {
                         .min_by_key(|(_, value)| *value)
                     {
                         let n_tb_req = (n_tb as u32).min(available_tbs);
-                        let mut grid_idxs = Vec::new();
+                        let mut block_idxs = Vec::new();
                         for _ in 0..n_tb_req {
                             let gx = self.kernel_payload.grid.0 as u32;
                             let gy = self.kernel_payload.grid.1 as u32;
@@ -368,12 +368,12 @@ impl Clocked for KernelEngine {
                             let rem = self.tb_ctr % plane;
                             let block_y = rem / gx;
                             let block_x = rem % gx;
-                            grid_idxs.push((block_x as u16, block_y as u16, block_z as u16));
+                            block_idxs.push((block_x as u16, block_y as u16, block_z as u16));
                             self.tb_ctr += 1;
                         }
                         self.glul_req.thread_blocks = Some(ThreadBlocks {
                             pc: self.kernel_payload.start_pc,
-                            grid_idx: grid_idxs,
+                            block_idxs: block_idxs,
                             block_dim: self.kernel_payload.block,
                             regs: self.kernel_payload.regs_per_thread as u32,
                             shmem: self.kernel_payload.shmem_per_block as u32,

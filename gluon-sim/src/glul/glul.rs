@@ -139,31 +139,31 @@ impl Clocked for GLUL {
                     * thread_blocks.block_dim.2 as u32;
                 let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
                 let warps_per_core = (warps_per_tb / self.status.config.num_cores as u32).max(1);
-                let cores_per_tb = self.status.config.num_cores / thread_blocks.grid_idx.len() as usize;
-                let mut block_idx = (0, 0, 0);
-                thread_blocks.grid_idx.iter().enumerate().for_each(|(tb_idx, grid_idx)| {
+                let cores_per_tb = self.status.config.num_cores / thread_blocks.block_idxs.len() as usize;
+                let mut thread_idx = (0, 0, 0);
+                thread_blocks.block_idxs.iter().enumerate().for_each(|(tb_idx, block_idx)| {
                     let core_start = tb_idx * cores_per_tb;
                     let core_end = core_start + cores_per_tb;
                     (core_start..core_end).for_each(|core_idx| {
-                        let mut block_idxs = Vec::new();
+                        let mut thread_idxs = Vec::new();
                         for _ in 0..warps_per_core {
-                            let mut warp_block_idxs = Vec::new();
+                            let mut warp_thread_idxs = Vec::new();
                             for _ in 0..self.status.config.num_lanes {
-                                warp_block_idxs.push(block_idx);
-                                block_idx.0 = (block_idx.0 + 1) % thread_blocks.block_dim.0 as u16;
+                                warp_thread_idxs.push(thread_idx);
+                                thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0 as u16;
                                 if block_idx.0 == 0 {
-                                    block_idx.1 = (block_idx.1 + 1) % thread_blocks.block_dim.1 as u16;
-                                    if block_idx.1 == 0 {
-                                        block_idx.2 = (block_idx.2 + 1) % thread_blocks.block_dim.2 as u16;
+                                    thread_idx.1 = (thread_idx.1 + 1) % thread_blocks.block_dim.1 as u16;
+                                    if thread_idx.1 == 0 {
+                                        thread_idx.2 = (thread_idx.2 + 1) % thread_blocks.block_dim.2 as u16;
                                     }
                                 }
                             }
-                            block_idxs.push(warp_block_idxs);
+                            thread_idxs.push(warp_thread_idxs);
                         }
                         self.cores
                             .get_mut(core_idx)
                             .expect("Core index out of bounds")
-                            .spawn_n_warps(thread_blocks.pc, grid_idx.clone(), block_idxs);
+                            .spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs);
                     });
                 });
                 self.state = GLULState::S2;
@@ -231,7 +231,7 @@ impl GLUL {
     pub fn submit_thread_block(&mut self, thread_blocks: ThreadBlocks, engine_idx: usize) {
         info!(
             self.logger,
-            "Submitting {} thread blocks {:?} to GLUL {:?}", thread_blocks.grid_idx.len() as u32, thread_blocks, self.status.config
+            "Submitting thread blocks {:?} to GLUL {:?}", thread_blocks, self.status.config
         );
         self.thread_blocks = Some(thread_blocks);
         self.engine_idx = engine_idx;
@@ -241,7 +241,7 @@ impl GLUL {
     pub fn try_acknowledge_done_err(&mut self) -> Option<Result<(usize, u32), (usize, ExecErr)>> {
         if self.done {
             self.done = false;
-            let n_tb = self.thread_blocks.as_ref().expect("Thread blocks not set").grid_idx.len() as u32;
+            let n_tb = self.thread_blocks.as_ref().expect("Thread blocks not set").block_idxs.len() as u32;
             self.thread_blocks = None;
             Some(
                 self.err
