@@ -67,6 +67,7 @@ pub struct KernelPayload {
     params_sz: u32,
     binary_sz: u32,
     stack_base_addr: u32,
+    tls_base_addr: u32,
     grid: (u32, u32, u32),
     block: (u32, u32, u32),
     regs_per_thread: u8,
@@ -83,6 +84,7 @@ impl fmt::Debug for KernelPayload {
             .field("params_sz", &self.params_sz)
             .field("binary_sz", &self.binary_sz)
             .field("stack_base_addr", &format_args!("0x{:08x}", self.stack_base_addr))
+            .field("tls_base_addr", &format_args!("0x{:08x}", self.tls_base_addr))
             .field("grid", &self.grid)
             .field("block", &self.block)
             .field("regs_per_thread", &self.regs_per_thread)
@@ -100,26 +102,28 @@ impl KernelPayload {
         let params_sz = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
         let binary_sz = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
         let stack_base_addr = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+        let tls_base_addr = u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
         let grid = (
-            u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]),
             u32::from_le_bytes([bytes[24], bytes[25], bytes[26], bytes[27]]),
             u32::from_le_bytes([bytes[28], bytes[29], bytes[30], bytes[31]]),
+            u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]),
         );
         let block = (
-            u32::from_le_bytes([bytes[32], bytes[33], bytes[34], bytes[35]]),
             u32::from_le_bytes([bytes[36], bytes[37], bytes[38], bytes[39]]),
             u32::from_le_bytes([bytes[40], bytes[41], bytes[42], bytes[43]]),
+            u32::from_le_bytes([bytes[44], bytes[45], bytes[46], bytes[47]]),
         );
-        let printf_host_addr = u32::from_le_bytes([bytes[44], bytes[45], bytes[46], bytes[47]]);
-        let regs_per_thread = bytes[48];
-        let shmem_per_block = u32::from_le_bytes([bytes[49], bytes[50], bytes[51], bytes[52]]);
-        let flags = bytes[53];
+        let printf_host_addr = u32::from_le_bytes([bytes[48], bytes[49], bytes[50], bytes[51]]);
+        let regs_per_thread = bytes[52];
+        let shmem_per_block = u32::from_le_bytes([bytes[53], bytes[54], bytes[55], bytes[56]]);
+        let flags = bytes[57];
         KernelPayload {
             start_pc,
             kernel_pc,
             params_sz,
             binary_sz,
             stack_base_addr,
+            tls_base_addr,
             grid,
             block,
             regs_per_thread,
