@@ -241,6 +241,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
             let (read_half, write_half) = stream.into_split();
 
+            env_logger::init();
+
             let h1 = tokio::task::spawn(enqueue_command(read_half, addr, Arc::clone(&top)));
             let h2 = tokio::task::spawn(tick_sim(Arc::clone(&top)));
             let h3 = tokio::task::spawn(dequeue_completion(write_half, Arc::clone(&top)));

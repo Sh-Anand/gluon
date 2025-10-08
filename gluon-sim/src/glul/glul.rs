@@ -160,6 +160,10 @@ impl Clocked for GLUL {
                             }
                             thread_idxs.push(warp_thread_idxs);
                         }
+                        info!(
+                            self.logger,
+                            "Spawning block_idx{:?} warps{:?} to core {:?}", block_idx, thread_idxs, core_idx
+                        );
                         self.cores
                             .get_mut(core_idx)
                             .expect("Core index out of bounds")
@@ -231,7 +235,7 @@ impl GLUL {
     pub fn submit_thread_block(&mut self, thread_blocks: ThreadBlocks, engine_idx: usize) {
         info!(
             self.logger,
-            "Submitting thread blocks {:?} to GLUL {:?}", thread_blocks, self.status.config
+            "Submitting {:?} to {:?}", thread_blocks, self.status.config
         );
         self.thread_blocks = Some(thread_blocks);
         self.engine_idx = engine_idx;
