@@ -319,4 +319,12 @@ std::optional<std::string> ReceiveError() {
     return std::string(buffer, static_cast<std::size_t>(received));
 }
 
+void* GetSharedMemoryBase() {
+    ConnectionState& state = GetState();
+    if (!state.initialized) {
+        return nullptr;
+    }
+    return state.shared.addr;
+}
+
 }  // namespace rad

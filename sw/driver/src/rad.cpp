@@ -95,12 +95,14 @@ public:
     uint32_t gpu_kernel_base;
 };
 
-class MemCommand : public Command {
+class CopyCommand : public Command {
 public:
-    MemCommand(uint32_t src_addr, uint32_t dst_addr, uint32_t size, radMemCpyDir dir) : Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), dir(dir) {}
+    CopyCommand(uint32_t src_addr, uint32_t dst_addr, uint32_t size, void *userspace_dst_addr, radMemCpyDir dir) :
+        Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), userspace_dst_addr(userspace_dst_addr), dir(dir) {}
     uint32_t src_addr;
     uint32_t dst_addr;
     uint32_t size;
+    void *userspace_dst_addr;
     radMemCpyDir dir;
 };
 
@@ -407,28 +409,35 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
     uint32_t src_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(src));
     uint32_t dst_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dst));
     uint32_t size_u32 = static_cast<uint32_t>(bytes);
-    
-    uint8_t cmd_id = command_stream.add_command(std::make_unique<MemCommand>(src_addr_u32, dst_addr_u32, size_u32, dir));
+
+    void *src_addr, *dst_addr, *payload_addr;
+    void *userspace_dst_addr;
+    size_t payload_size;
+    if (dir == radMemCpyDir_H2D) {
+        src_addr = 0;
+        dst_addr = dst;
+        payload_addr = src;
+        payload_size = bytes;
+        userspace_dst_addr = 0;
+    } else {
+        src_addr = src;
+        dst_addr = 0;
+        payload_addr = nullptr;
+        payload_size = 0;
+        userspace_dst_addr = dst;
+    }
+
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir));
     
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = cmd_id;
     header_bytes[1] = radCmdType_MEM;
     header_bytes[2] = radMemCmdType_COPY;
-    void *src_addr, *dst_addr, *payload_addr;
-    if (dir == radMemCpyDir_H2D) {
-        src_addr = 0;
-        dst_addr = dst;
-        payload_addr = src;
-    } else {
-        src_addr = src;
-        dst_addr = 0;
-        payload_addr = src;
-    }
     write_u32_le(header_bytes.data() + 3, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src_addr)));
     write_u32_le(header_bytes.data() + 7, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst_addr)));
     write_u32_le(header_bytes.data() + 11, static_cast<std::uint32_t>(bytes));
     header_bytes[15] = dir;
-    auto response = rad::SubmitCommand(header_bytes, payload_addr, bytes);
+    auto response = rad::SubmitCommand(header_bytes, payload_addr, payload_size);
     if (!response)
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }
@@ -446,6 +455,7 @@ void radMalloc(void **ptr, size_t bytes) {
     *ptr = reinterpret_cast<void *>(value);
 }
 
+// Massive hack, memcpy to userspace destination is handled here
 void radGetError(radError *err) {
     if (err == nullptr)
         return;
@@ -453,7 +463,8 @@ void radGetError(radError *err) {
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
-        Command* command = command_stream.ack_command(response->at(0));
+        uint8_t response_cmd_id = response->at(0);
+        Command* command = command_stream.ack_command(response_cmd_id);
         if (command) {
             err->cmd_id = command->cmd_id;
         } else {
@@ -471,6 +482,21 @@ void radGetError(radError *err) {
             auto translated_pc = translateGpuAddrToElfVirtualAddress(kernel_command->kernel_binary, pc, kernel_command->gpu_kernel_base);
             if (translated_pc)
                 pc = *translated_pc;
+        }
+
+        if (command->cmd_type == radCmdType_MEM) {
+            CopyCommand* copy_command = static_cast<CopyCommand*>(command);
+            if (copy_command->dir == radMemCpyDir_D2H) {
+                void *shared_mem_base = rad::GetSharedMemoryBase();
+                if (!shared_mem_base) {
+                    fprintf(stderr, "radGetError: shared memory not initialized\n");
+                    return;
+                }
+                uint32_t device_addr = copy_command->src_addr;
+                uint32_t offset = device_addr - GPU_MEM_START_ADDR;
+                void *src_addr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(shared_mem_base) + offset);
+                memcpy(copy_command->userspace_dst_addr, src_addr, copy_command->size);
+            }
         }
 
         err->pc = pc;
