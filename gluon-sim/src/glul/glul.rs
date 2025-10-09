@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock};
 
 use cyclotron::{
     base::behavior::ModuleBehaviors,
+    debug,
     info,
     muon::{
         config::{LaneConfig, MuonConfig},
@@ -114,9 +115,17 @@ impl Clocked for GLUL {
                 let cores_per_tb = (warps_per_tb as f32 / self.status.config.num_warps as f32).ceil() as usize;
                 let warps_per_core = warps_per_tb / cores_per_tb as u32;
                 let mut thread_idx = (0, 0, 0);
+                debug!(
+                    self.logger,
+                    "GLUL: Spawning threadblocks {:?}, warps_per_tb {:?}, cores_per_tb {:?}, threads_in_last_warp {:?}", thread_blocks.block_idxs, warps_per_tb, cores_per_tb, threads_in_last_warp
+                );
                 thread_blocks.block_idxs.iter().enumerate().for_each(|(tb_idx, block_idx)| {
                     let core_start = tb_idx * cores_per_tb;
                     let core_end = core_start + cores_per_tb;
+                    debug!(
+                        self.logger,
+                        "GLUL: Threadblock {:?}, core_start {:?}, core_end {:?}", tb_idx, core_start, core_end
+                    );
                     (core_start..core_end).for_each(|core_idx| {
                         let mut thread_idxs = Vec::new();
                         for _ in 0..warps_per_core {
@@ -135,7 +144,7 @@ impl Clocked for GLUL {
                         }
                         info!(
                             self.logger,
-                            "Spawning block_idx{:?} warps{:?} to core {:?}", block_idx, thread_idxs, core_idx
+                            "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
                         );
                         let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
                         core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs);
