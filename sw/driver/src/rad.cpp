@@ -24,11 +24,6 @@ void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
 }
 
-void write_u16_le(std::uint8_t* dst, std::uint16_t value) {
-    dst[0] = static_cast<std::uint8_t>(value & 0xFF);
-    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
-}
-
 struct BufferWriter {
     std::uint8_t* cursor;
     std::uint8_t* end;
@@ -38,14 +33,6 @@ struct BufferWriter {
             return false;
         write_u32_le(cursor, value);
         cursor += 4;
-        return true;
-    }
-
-    bool write_u16(std::uint16_t value) {
-        if (!remaining(2))
-            return false;
-        write_u16_le(cursor, value);
-        cursor += 2;
         return true;
     }
 
@@ -94,6 +81,7 @@ struct KernelBinary {
     uint32_t kernel_pc = 0;
     const uint8_t* data;
     size_t size = 0;
+    uint32_t load_offset = 0;  // File offset where loadable data starts
 };
 
 std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
@@ -147,9 +135,15 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
 
     uint32_t start_offset = 0;
     uint32_t kernel_offset = 0;
+    uint32_t load_offset = 0;
+    bool found_first_load = false;
     for (const auto& seg : elf.segments) {
         if (seg->get_type() != PT_LOAD)
             continue;
+        if (!found_first_load) {
+            load_offset = static_cast<uint32_t>(seg->get_offset());
+            found_first_load = true;
+        }
         auto vaddr = seg->get_virtual_address();
         auto filesz = seg->get_file_size();
         if (start_vaddr >= vaddr && start_vaddr < vaddr + filesz)
@@ -164,20 +158,26 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
         fprintf(stderr, "radKernelLaunch: failed to find start or kernel offset\n");
         return std::nullopt;
     }
-    fprintf(stderr, "radKernelLaunch: found start offset: %u, kernel offset: %u\n", start_offset, kernel_offset);
-    return KernelBinary{start_offset, kernel_offset, start, size};
+    fprintf(stderr, "radKernelLaunch: found start offset: %u, kernel offset: %u, load offset: %u\n", 
+            start_offset, kernel_offset, load_offset);
+    return KernelBinary{start_offset, kernel_offset, start, size, load_offset};
+}
+
+static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
+
+uint32_t peekDeviceMemoryAddress() {
+    return static_cast<uint32_t>(g_device_mem_used);
 }
 
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
-    static std::uint64_t used = GPU_MEM_START_ADDR;
     static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
     size_t aligned_bytes = bytes + (bytes % sizeof(uint32_t));
-    if (used > capacity)
+    if (g_device_mem_used > capacity)
         return std::nullopt;
-    if (bytes > capacity - used)
+    if (bytes > capacity - g_device_mem_used)
         return std::nullopt;
-    uint32_t addr = static_cast<uint32_t>(used);
-    used += aligned_bytes;
+    uint32_t addr = static_cast<uint32_t>(g_device_mem_used);
+    g_device_mem_used += aligned_bytes;
     return addr;
 }
 
@@ -185,6 +185,7 @@ void radKernelLaunch(const char *kernel_name,
                                  radDim3 grid_dim,
                                  radDim3 block_dim,
                                  radParamBuf* params) {
+    
     if (!kernel_name)
         return;
     auto kernel_binary = loadKernelBinary(kernel_name);
@@ -217,23 +218,44 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: parameter buffer missing data pointer\n");
         return;
     }
-    size_t payload_size = KERNEL_HEADER_BYTES + params_size;
-    uint32_t param_padding = (payload_size) & (sizeof(uint32_t) - 1);
-    payload_size += param_padding;
-    payload_size += kernel_binary->size;
-    uint32_t kernel_bin_padding = (payload_size) & (sizeof(uint32_t) - 1);
-    payload_size += kernel_bin_padding;
 
-    auto device_addr = allocateDeviceMemory(payload_size);
+    // Calculate how much padding we need to align kernel binary to KERNEL_LOAD_ADDR
+    size_t header_params_size = KERNEL_HEADER_BYTES + params_size;
+    uint32_t param_padding = (header_params_size) & (sizeof(uint32_t) - 1);
+    header_params_size += param_padding;
+    
+    uint32_t current_addr = peekDeviceMemoryAddress();
+    uint32_t kernel_bin_target = KERNEL_LOAD_ADDR;
+    uint32_t alignment_padding = 0;
+    
+    if (current_addr + header_params_size < kernel_bin_target) {
+        alignment_padding = kernel_bin_target - current_addr - header_params_size;
+    } else {
+        fprintf(stderr, "radKernelLaunch: cannot align kernel to 0x%x\n", kernel_bin_target);
+        return;
+    }
+    
+    // Allocate space for header + params + padding + kernel binary (skip ELF header)
+    size_t loadable_size = kernel_binary->size - kernel_binary->load_offset;
+    size_t total_size = header_params_size + alignment_padding + loadable_size;
+    
+    
+    auto device_addr = allocateDeviceMemory(total_size);
     if (!device_addr) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate device memory\n");
+        fprintf(stderr, "radKernelLaunch: failed to allocate memory\n");
         return;
     }
     uint32_t gpu_addr = *device_addr;
-
-    size_t gpu_mem_kernel_bin_start = gpu_addr + KERNEL_HEADER_BYTES + params_size + param_padding;
-    uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + kernel_binary->start_pc;
-    uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + kernel_binary->kernel_pc;
+    uint32_t gpu_mem_kernel_bin_start = gpu_addr + header_params_size + alignment_padding;
+    
+    // Adjust PC values: they're file offsets, but we're loading from load_offset
+    uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + (kernel_binary->start_pc - kernel_binary->load_offset);
+    uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + (kernel_binary->kernel_pc - kernel_binary->load_offset);
+    
+    size_t payload_size = total_size;
+    
+    fprintf(stderr, "radKernelLaunch: kernel binary at 0x%x (target 0x%x), padding=%u\n",
+            gpu_mem_kernel_bin_start, kernel_bin_target, alignment_padding);
     if (payload_size == 0) {
         fprintf(stderr, "radKernelLaunch: empty payload size\n");
         return;
@@ -260,6 +282,7 @@ void radKernelLaunch(const char *kernel_name,
     }
     uint32_t tls_base_addr = *tls_base_addr_opt;
 
+    // Write header, params, padding, and kernel binary into payload
     BufferWriter writer{payload.get(), payload.get() + payload_size};
     if (!writer.write_u32(gpu_mem_start_pc) ||
         !writer.write_u32(gpu_mem_kernel_pc) ||
@@ -277,15 +300,16 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_u8(KERNEL_REGS_PER_THREAD) ||
         !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
         !writer.write_u8(KERNEL_FLAGS) ||
-        !writer.write_u16(KERNEL_RESERVED_U16) ||
+        !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, params_size) ||
         !writer.write_zero(param_padding) ||
-        !writer.write_block(kernel_binary->data, kernel_binary->size) ||
-        !writer.write_zero(kernel_bin_padding) ||
+        !writer.write_zero(alignment_padding) ||
+        !writer.write_block(kernel_binary->data + kernel_binary->load_offset, loadable_size) ||
         !writer.finished()) {
         fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
         return;
     }
+    
     if (payload_size > UINT32_MAX) {
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
