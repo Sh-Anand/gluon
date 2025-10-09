@@ -90,8 +90,9 @@ public:
 
 class KernelCommand : public Command {
 public:
-    KernelCommand(KernelBinary kernel_binary) : Command(radCmdType_KERNEL), kernel_binary(kernel_binary) {}
+    KernelCommand(KernelBinary kernel_binary, uint32_t gpu_kernel_base) : Command(radCmdType_KERNEL), kernel_binary(kernel_binary), gpu_kernel_base(gpu_kernel_base) {}
     KernelBinary kernel_binary;
+    uint32_t gpu_kernel_base;
 };
 
 class MemCommand : public Command {
@@ -208,6 +209,29 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
     fprintf(stderr, "radKernelLaunch: found start offset: %u, kernel offset: %u, load offset: %u\n", 
             start_offset, kernel_offset, load_offset);
     return KernelBinary{start_offset, kernel_offset, start, size, load_offset};
+}
+
+std::optional<uint32_t> translateGpuAddrToElfVirtualAddress(KernelBinary &kernel_binary, uint32_t gpu_addr, uint32_t gpu_kernel_base) {
+    if (gpu_addr < gpu_kernel_base)
+        return std::nullopt;
+    uint32_t offset_in_binary = gpu_addr - gpu_kernel_base;
+    // The kernel binary is loaded at its ELF virtual address base
+    // Find the first LOAD segment to get the base virtual address
+    std::string kernel_bin = std::string(reinterpret_cast<const char*>(kernel_binary.data), kernel_binary.size);
+    std::istringstream elf_stream(kernel_bin, std::ios::binary);
+    elfio elf;
+    if (!elf.load(elf_stream))
+        return std::nullopt;
+    for (const auto& seg : elf.segments) {
+        if (seg->get_type() != PT_LOAD)
+            continue;
+        auto vaddr_base = seg->get_virtual_address();
+        auto file_offset = seg->get_offset();
+        if (file_offset == kernel_binary.load_offset) {
+            return static_cast<uint32_t>(vaddr_base + offset_in_binary);
+        }
+    }
+    return std::nullopt;
 }
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
@@ -362,7 +386,7 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
 
-    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(*kernel_binary));
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(*kernel_binary, gpu_mem_kernel_bin_start));
 
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = cmd_id;
@@ -429,20 +453,28 @@ void radGetError(radError *err) {
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
-        auto command = command_stream.ack_command(response->at(0));
+        Command* command = command_stream.ack_command(response->at(0));
         if (command) {
             err->cmd_id = command->cmd_id;
         } else {
             fprintf(stderr, "radGetError: command not found in stream\n");
         }
         err->err_code = static_cast<radErrorCode>(response->at(1));
+
         uint32_t pc = static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(2))) |
-                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(3))) << 8) |
-                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(4))) << 16) |
-                      (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(5))) << 24);
-        auto offset = rad::translate_dev_addr(pc);
+            (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(3))) << 8) |
+            (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(4))) << 16) |
+            (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(5))) << 24);
+
+        if (command->cmd_type == radCmdType_KERNEL) {
+            KernelCommand* kernel_command = static_cast<KernelCommand*>(command);
+            auto translated_pc = translateGpuAddrToElfVirtualAddress(kernel_command->kernel_binary, pc, kernel_command->gpu_kernel_base);
+            if (translated_pc)
+                pc = *translated_pc;
+        }
+
         err->pc = pc;
-        err->pc = offset ? *offset : 0;
+
         return;
     }
 }

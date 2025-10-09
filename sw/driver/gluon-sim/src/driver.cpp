@@ -120,18 +120,6 @@ bool SendAll(int fd, const std::uint8_t* data, std::size_t size) {
 
 }
 
-std::optional<std::uint32_t> translate_dev_addr(std::uint32_t addr) {
-    ConnectionState& state = GetState();
-    if (!state.initialized)
-        return std::nullopt;
-    if (addr < GPU_MEM_START_ADDR)
-        return std::nullopt;
-    std::size_t offset = static_cast<std::size_t>(addr - GPU_MEM_START_ADDR);
-    if (offset >= state.shared.size)
-        return std::nullopt;
-    return static_cast<std::uint32_t>(offset);
-}
-
 void ShutdownConnection() {
     ConnectionState& state = GetState();
     if (state.sock != -1) {
