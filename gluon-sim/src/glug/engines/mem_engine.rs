@@ -168,7 +168,8 @@ impl Engine for MemEngine {
     fn get_completion(&self) -> Option<(Event, usize)> {
         self.err.as_ref().map(|err|{
             assert!(err.is_ok(), "Mem engine: cannot error");
-            (Event::default(), self.cmd.expect("Command not set, no completion exists").1)
+            let (cmd, completion_idx) = self.cmd.expect("Command not set, no completion exists");
+            (Event::from_ok(cmd.id), completion_idx)
         })
     }
 }
