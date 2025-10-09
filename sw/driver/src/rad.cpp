@@ -15,8 +15,6 @@
 #include <elfio/elfio.hpp>
 #include <iomanip>
 
-namespace {
-
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[0] = static_cast<std::uint8_t>(value & 0xFF);
     dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
@@ -69,7 +67,6 @@ private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
 };
 
-}  // namespace
 
 using namespace ELFIO;
 
@@ -83,6 +80,56 @@ struct KernelBinary {
     size_t size = 0;
     uint32_t load_offset = 0;  // File offset where loadable data starts
 };
+
+class Command {
+public:
+    uint8_t cmd_id;
+    radCmdType cmd_type;
+    Command(radCmdType cmd_type) : cmd_type(cmd_type) {}
+};
+
+class KernelCommand : public Command {
+public:
+    KernelCommand(KernelBinary kernel_binary) : Command(radCmdType_KERNEL), kernel_binary(kernel_binary) {}
+    KernelBinary kernel_binary;
+};
+
+class MemCommand : public Command {
+public:
+    MemCommand(uint32_t src_addr, uint32_t dst_addr, uint32_t size, radMemCpyDir dir) : Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), dir(dir) {}
+    uint32_t src_addr;
+    uint32_t dst_addr;
+    uint32_t size;
+    radMemCpyDir dir;
+};
+
+class CommandStream {
+public:
+    uint8_t next_cmd_id;
+    std::vector<std::unique_ptr<Command>> commands;
+
+    CommandStream() : next_cmd_id(0) {
+        fprintf(stderr, "CommandStream: initialized\n");
+    }
+
+    uint8_t add_command(std::unique_ptr<Command> command) {
+        command->cmd_id = next_cmd_id++;
+        uint8_t cmd_id = command->cmd_id;
+        commands.push_back(std::move(command));
+        return cmd_id;
+    }
+
+    Command* ack_command(uint8_t cmd_id) {
+        for (auto& command : commands) {
+            if (command->cmd_id == cmd_id)
+                return command.get();
+        }
+        return nullptr;
+    }
+    
+};
+
+static CommandStream command_stream;
 
 std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
     if (kernel_name.empty())
@@ -314,9 +361,12 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: payload too large\n");
         return;
     }
+
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(*kernel_binary));
+
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = radCmdType_KERNEL;
-    header_bytes[1] = 0;
+    header_bytes[0] = cmd_id;
+    header_bytes[1] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
     write_u32_le(header_bytes.data() + 10, gpu_addr);
@@ -329,8 +379,15 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
     fprintf(stderr, "radMemCpy: dst=%p, src=%p, bytes=%zu, dir=%d\n", dst, src, bytes, dir);
     if (dst == nullptr || src == nullptr)
         return;
+    
+    uint32_t src_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(src));
+    uint32_t dst_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dst));
+    uint32_t size_u32 = static_cast<uint32_t>(bytes);
+    
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<MemCommand>(src_addr_u32, dst_addr_u32, size_u32, dir));
+    
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = 0;
+    header_bytes[0] = cmd_id;
     header_bytes[1] = radCmdType_MEM;
     header_bytes[2] = radMemCmdType_COPY;
     void *src_addr, *dst_addr, *payload_addr;
@@ -372,7 +429,12 @@ void radGetError(radError *err) {
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
-        err->cmd_id = response->at(0);
+        auto command = command_stream.ack_command(response->at(0));
+        if (command) {
+            err->cmd_id = command->cmd_id;
+        } else {
+            fprintf(stderr, "radGetError: command not found in stream\n");
+        }
         err->err_code = static_cast<radErrorCode>(response->at(1));
         uint32_t pc = static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(2))) |
                       (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(3))) << 8) |
