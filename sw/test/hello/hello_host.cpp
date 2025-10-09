@@ -3,11 +3,11 @@
 
 int main() {
     printf("Launching kernel\n");
-    radDim3 grid = {1, 2, 2};
-    radDim3 block = {1, 4, 4};
+    radDim3 grid = {1, 1, 1};
+    radDim3 block = {1, 1, 2};
     radParamBuf params;
-    params.push(1);
-    params.push(2);
+    params.push(5);
+    params.push(6);
     radKernelLaunch("hello_kernel", grid, block, &params);
     radError err;
     radGetError(&err);
