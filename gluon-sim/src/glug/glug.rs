@@ -20,7 +20,8 @@ pub struct GLUGConfig {
     pub engine: EngineConfig,
     pub completion: CompletionConfig,
     pub gluls: Vec<GLULConfig>,
-    pub log_level: u64,
+    pub gluon_log_level: u64,
+    pub muon_log_level: u64,
 }
 
 pub struct GLUG {
@@ -58,12 +59,13 @@ impl Configurable<GLUGConfig> for GLUG {
         let mut toy_mem = ToyMemory::default();
         toy_mem.set_config(MemConfig::default());
         let dram = Arc::new(RwLock::new(toy_mem));
-        let logger = Arc::new(Logger::new(config.log_level));
+        let logger = Arc::new(Logger::new(config.gluon_log_level));
+        let muon_logger = Arc::new(Logger::new(config.muon_log_level));
 
         let gluls = glul_configs
             .iter()
             .copied()
-            .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), dram.clone()))
+            .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), muon_logger.clone(), dram.clone()))
             .collect::<Vec<_>>();
 
         let mut engines = engine_config.generate_engines(logger.clone());

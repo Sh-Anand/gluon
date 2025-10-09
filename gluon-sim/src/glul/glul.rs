@@ -180,7 +180,8 @@ impl Clocked for GLUL {
 impl GLUL {
     pub fn new_with_logger_dram(
         config: GLULConfig,
-        logger: Arc<Logger>,
+        gluon_logger: Arc<Logger>,
+        muon_logger: Arc<Logger>,
         dram: Arc<RwLock<ToyMemory>>,
     ) -> Self {
         let muon_config = MuonConfig {
@@ -192,10 +193,10 @@ impl GLUL {
         GLUL {
             status: GLULStatus::new(config),
             cores: (0..config.num_cores)
-                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &logger, dram.clone()), false))
+                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &muon_logger, dram.clone()), false))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
-            logger,
+            logger: gluon_logger,
             state: GLULState::S0,
             thread_blocks: None,
             engine_idx: 0,
