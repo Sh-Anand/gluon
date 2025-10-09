@@ -111,7 +111,13 @@ impl Clocked for GLUL {
                 let threads_per_tb = thread_blocks.block_dim.0
                     * thread_blocks.block_dim.1
                     * thread_blocks.block_dim.2;
-                let warps_per_tb = threads_per_tb / self.status.config.num_lanes as u32;
+                let warps_per_tb = (threads_per_tb / self.status.config.num_lanes as u32).max(1);
+                let remaining_threads = threads_per_tb % self.status.config.num_lanes as u32;
+                let threads_in_last_warp = if remaining_threads == 0 {
+                    self.status.config.num_lanes as u32
+                } else {
+                    remaining_threads
+                };
                 let cores_per_tb = (warps_per_tb as f32 / self.status.config.num_warps as f32).ceil() as usize;
                 let warps_per_core = warps_per_tb / cores_per_tb as u32;
                 let mut thread_idx = (0, 0, 0);
@@ -128,9 +134,14 @@ impl Clocked for GLUL {
                     );
                     (core_start..core_end).for_each(|core_idx| {
                         let mut thread_idxs = Vec::new();
-                        for _ in 0..warps_per_core {
+                        for warp_idx in 0..warps_per_core {
+                            let lanes_in_warp = if warp_idx == warps_per_core - 1 {
+                                threads_in_last_warp as usize
+                            } else {
+                                self.status.config.num_lanes
+                            };
                             let mut warp_thread_idxs = Vec::new();
-                            for _ in 0..self.status.config.num_lanes {
+                            for _ in 0..lanes_in_warp {
                                 warp_thread_idxs.push(thread_idx);
                                 thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0;
                                 if block_idx.0 == 0 {
