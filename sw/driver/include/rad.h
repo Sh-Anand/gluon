@@ -72,6 +72,10 @@ struct radParamBuf {
         offset = end;
     }
 
+    void push(void *ptr) {
+        push((uint32_t)((uintptr_t)ptr));
+    }
+
     const std::uint8_t* data() const {
         return storage.empty() ? nullptr : storage.data();
     }
