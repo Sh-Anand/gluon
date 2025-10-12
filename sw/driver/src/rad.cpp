@@ -487,9 +487,7 @@ void radGetError(radError *err) {
                     fprintf(stderr, "radGetError: shared memory not initialized\n");
                     return;
                 }
-                uint32_t device_addr = copy_command->src_addr;
-                uint32_t offset = device_addr - GPU_MEM_START_ADDR;
-                void *src_addr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(shared_mem_base) + offset);
+                void *src_addr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(shared_mem_base));
                 memcpy(copy_command->userspace_dst_addr, src_addr, copy_command->size);
             }
         }
