@@ -297,7 +297,7 @@ void radKernelLaunch(const char *kernel_name,
     uint32_t param_padding = (header_params_size) & (sizeof(uint32_t) - 1);
     header_params_size += param_padding;
     
-    uint32_t current_addr = peekDeviceMemoryAddress();
+    uint32_t current_addr = KERNEL_HEADER_START_ADDR;
     uint32_t kernel_bin_target = KERNEL_LOAD_ADDR;
     uint32_t alignment_padding = 0;
     
@@ -313,12 +313,7 @@ void radKernelLaunch(const char *kernel_name,
     size_t total_size = header_params_size + alignment_padding + loadable_size;
     
     
-    auto device_addr = allocateDeviceMemory(total_size);
-    if (!device_addr) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate memory\n");
-        return;
-    }
-    uint32_t gpu_addr = *device_addr;
+    uint32_t gpu_addr = KERNEL_HEADER_START_ADDR;
     uint32_t gpu_mem_kernel_bin_start = gpu_addr + header_params_size + alignment_padding;
     
     // Adjust PC values: they're file offsets, but we're loading from load_offset

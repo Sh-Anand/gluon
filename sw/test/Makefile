@@ -28,7 +28,7 @@ HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
 
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
-KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -Wl,-Ttext=0x2000 -Wl,-N \
+KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -Wl,-Ttext=0x10001000 -Wl,-N \
     -L$(MUON_32)/lib/$(RISCV_TRIPLE) -L$(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
