@@ -266,6 +266,7 @@ impl Clocked for KernelEngine {
                 if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
                     self.tb_ctr = 0;
+                    self.tb_done = 0;
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
