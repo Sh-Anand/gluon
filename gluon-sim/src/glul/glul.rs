@@ -158,7 +158,7 @@ impl Clocked for GLUL {
                             "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
                         );
                         let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
-                        core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs);
+                        core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, 0);
                         core.1 = true;
                     });
                 });
@@ -167,7 +167,7 @@ impl Clocked for GLUL {
             GLULState::S2 => {
                 self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).for_each(|core| {
                     core.tick_one();
-                    if let Err(e) = core.execute(&mut self.neutrino) {
+                    if let Err(e) = core.process(&mut self.neutrino) {
                         self.err = Err(e);
                         self.state = GLULState::S3;
                     }
@@ -208,6 +208,9 @@ impl GLUL {
             num_cores: config.num_cores,
             num_warps: config.num_warps,
             num_lanes: config.num_lanes,
+            num_regs: config.regs_per_core,
+            start_pc: 0,
+            smem_size: config.shmem,
             lane_config: LaneConfig::default(),
         };
         GLUL {
