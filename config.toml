@@ -22,7 +22,7 @@ id = 1
 num_cores = 8
 num_warps = 8
 num_lanes = 32
-regs_per_core = 512
+regs_per_core = 256
 shmem = 8192
 
 [frontend]
