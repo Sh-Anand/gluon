@@ -4,10 +4,10 @@ use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
+use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
 use cyclotron::sim::log::Logger;
-use cyclotron::sim::toy_mem::ToyMemory;
-use cyclotron::sim::config::MemConfig;
+use cyclotron::sim::flat_mem::FlatMemory;
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
 
@@ -35,7 +35,7 @@ pub struct GLUG {
 
     gluls: Vec<GLUL>,
 
-    dram: Arc<RwLock<ToyMemory>>,
+    dram: Arc<RwLock<FlatMemory>>,
 
     logger: Arc<Logger>,
 }
@@ -56,9 +56,8 @@ impl Configurable<GLUGConfig> for GLUG {
         let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
-        let mut toy_mem = ToyMemory::default();
-        toy_mem.set_config(MemConfig::default());
-        let dram = Arc::new(RwLock::new(toy_mem));
+        let mut flat_mem = FlatMemory::default();
+        let dram = Arc::new(RwLock::new(flat_mem));
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
 
@@ -154,22 +153,11 @@ impl Clocked for GLUG {
             let mut dram = self.dram.write().expect("gmem poisoned");
             info!(self.logger, "Served mem {:?}", mem_req);
             if mem_req.write {
-                mem_req.data.iter().enumerate().for_each(|(idx, byte)| {
-                    dram.write_byte((mem_req.addr + idx as u32) as usize, *byte)
-                        .expect("gmem write errored")
-                });
-
+                dram.write(mem_req.addr as usize, &mem_req.data).expect("gmem write errored");
                 engine.set_mem_resp(None);
             } else {
-                let read_data = {
-                    (0..mem_req.bytes)
-                        .map(|i| {
-                            dram.read_byte((mem_req.addr + i) as usize)
-                                .expect("gmem read impossible")
-                        })
-                        .collect::<Vec<u8>>()
-                };
-                engine.set_mem_resp(Some(&read_data));
+                let read_data = dram.read(mem_req.addr as usize, mem_req.bytes as usize).expect("gmem read errored");
+                engine.set_mem_resp(Some(&read_data.to_vec()));
             }
         }
 
@@ -184,27 +172,15 @@ impl Clocked for GLUG {
                 DMADir::H2D => {
                     let mut dram = self.dram.write().expect("gmem poisoned");
 
-                    (0..dma_req.sz)
+                    let data = (0..dma_req.sz)
                         .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
-                        .enumerate()
-                        .for_each(|(idx, byte)| {
-                            dram.write_byte((dma_req.target_addr + idx as u32) as usize, byte)
-                                .expect("gmem write errored")
-                        });
-
-                    //info!(self.logger, "Served DMA req {:?}", dma_req);
+                        .collect::<Vec<u8>>();
+                    dram.write(dma_req.target_addr as usize, &data).expect("gmem write errored");
                 }
 
                 DMADir::D2H => {
-                    let data = {
-                        let mut dram = self.dram.write().expect("gmem poisoned");
-                        (0..dma_req.sz)
-                            .map(|i| {
-                                dram.read_byte((dma_req.src_addr + i) as usize)
-                                    .expect("gmem read impossible")
-                            })
-                            .collect::<Vec<u8>>()
-                    };
+                    let dram = self.dram.read().expect("gmem poisoned");
+                    let data = dram.read(dma_req.src_addr as usize, dma_req.sz as usize).expect("gmem read errored");
                     data.iter().enumerate().for_each(|(idx, byte)| unsafe {
                         *((dma_req.target_addr + idx as u32) as *mut u8) = *byte;
                     });

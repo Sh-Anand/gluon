@@ -10,7 +10,7 @@ use cyclotron::{
         warp::ExecErr,
     },
     neutrino::{config::NeutrinoConfig, neutrino::Neutrino},
-    sim::{log::Logger, toy_mem::ToyMemory},
+    sim::{log::Logger, flat_mem::FlatMemory},
 };
 use serde::Deserialize;
 
@@ -88,7 +88,7 @@ pub struct GLUL {
     thread_blocks: Option<ThreadBlocks>,
     engine_idx: usize,
 
-    dram: Arc<RwLock<ToyMemory>>,
+    dram: Arc<RwLock<FlatMemory>>,
 
     done: bool,
     err: Result<(), ExecErr>,
@@ -202,7 +202,7 @@ impl GLUL {
         config: GLULConfig,
         gluon_logger: Arc<Logger>,
         muon_logger: Arc<Logger>,
-        dram: Arc<RwLock<ToyMemory>>,
+        dram: Arc<RwLock<FlatMemory>>,
     ) -> Self {
         let muon_config = MuonConfig {
             num_cores: config.num_cores,
