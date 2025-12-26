@@ -56,7 +56,7 @@ impl Configurable<GLUGConfig> for GLUG {
         let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
-        let mut flat_mem = FlatMemory::default();
+        let flat_mem = FlatMemory::new(None);
         let dram = Arc::new(RwLock::new(flat_mem));
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
