@@ -284,16 +284,21 @@ void radKernelLaunch(const char *kernel_name,
             params_data = params->data();
     }
     
-    // Allocate space for header + params + padding + kernel binary (skip ELF header)
-    size_t loadable_size = kernel_binary->size - kernel_binary->load_offset;    
-    
+    // Allocate space for header + padding up to code base + kernel binary (skip ELF header)
+    size_t loadable_size = kernel_binary->size - kernel_binary->load_offset;
+    size_t header_to_code = KERNEL_LOAD_ADDR - KERNEL_HEADER_START_ADDR;
+    size_t code_pad = header_to_code - KERNEL_HEADER_BYTES;
+    if (params_size > code_pad) {
+        fprintf(stderr, "radKernelLaunch: params too large for header padding\n");
+        return;
+    }
+
     uint32_t gpu_mem_kernel_bin_start = KERNEL_HEADER_START_ADDR;
-    
-    // Adjust PC values: they're file offsets, but we're loading from load_offset
-    uint32_t gpu_mem_start_pc = gpu_mem_kernel_bin_start + (kernel_binary->start_pc - kernel_binary->load_offset);
-    uint32_t gpu_mem_kernel_pc = gpu_mem_kernel_bin_start + (kernel_binary->kernel_pc - kernel_binary->load_offset);
-    
-    size_t payload_size = KERNEL_HEADER_BYTES + loadable_size;
+
+    uint32_t gpu_mem_start_pc = KERNEL_LOAD_ADDR + (kernel_binary->start_pc - kernel_binary->load_offset);
+    uint32_t gpu_mem_kernel_pc = KERNEL_LOAD_ADDR + (kernel_binary->kernel_pc - kernel_binary->load_offset);
+
+    size_t payload_size = header_to_code + loadable_size;
     
     if (payload_size == 0) {
         fprintf(stderr, "radKernelLaunch: empty payload size\n");
@@ -317,13 +322,7 @@ void radKernelLaunch(const char *kernel_name,
     }
     uint32_t tls_base_addr = *tls_base_addr_opt;
 
-    // allocate params space
-    auto params_base_addr_opt = allocateDeviceMemory(params_size);
-    if (!params_base_addr_opt) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate params space on gpu\n");
-        return;
-    }
-    uint32_t params_base_addr = *params_base_addr_opt;
+    uint32_t params_base_addr = gpu_mem_kernel_bin_start + KERNEL_HEADER_BYTES;
 
     // Write header, params, padding, and kernel binary into payload
     BufferWriter writer{payload.get(), payload.get() + payload_size};
@@ -345,6 +344,8 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
+        !writer.write_block(params_data, params_size) ||
+        !writer.write_zero(code_pad - params_size) ||
         !writer.write_block(kernel_binary->data + kernel_binary->load_offset, loadable_size) ||
         !writer.finished()) {
         fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
