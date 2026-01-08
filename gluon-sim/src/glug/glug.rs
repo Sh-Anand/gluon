@@ -6,6 +6,7 @@ use crate::glug::frontend::{Frontend, FrontendConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
+use cyclotron::sim::config::MemConfig;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
 use serde::Deserialize;
@@ -56,7 +57,7 @@ impl Configurable<GLUGConfig> for GLUG {
         let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
-        let flat_mem = FlatMemory::new(None);
+        let flat_mem = FlatMemory::new(Some(MemConfig::default()));
         let dram = Arc::new(RwLock::new(flat_mem));
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
