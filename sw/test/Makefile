@@ -51,23 +51,9 @@ $(BUILD_DIR): | $(BUILD_ROOT)
 $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
-	$(MUON_CLANG) $(KERNEL_LDFLAGS) -o $@ $< $(LIBMUON_A) -lc -lm $(MUON_32)/lib/clang/18/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
-
-$(KERNEL_DISASM): $(KERNEL_ELF)
-	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) -M no-aliases $< > $@
-
-$(KERNEL_EMBED_OBJ): $(KERNEL_ELF) $(KERNEL_DISASM) | $(BUILD_DIR)
-	$(MUON_OBJCOPY) --input-target=binary --output-target=elf64-x86-64 \
-		--binary-architecture=x86-64 \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_start=__gluon_kernel_start \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_end=__gluon_kernel_end \
-		--redefine-sym _binary_build_$(TEST_NAME)_kernel_elf_size=__gluon_kernel_size \
-		$< $@
-
-$(HOST_BIN): $(HOST_SRCS) $(KERNEL_EMBED_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+$(HOST_BIN): $(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
-		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp $(KERNEL_EMBED_OBJ) -o $@
+		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp -o $@
 
 $(LIBMUON_A):
 	$(MAKE) -C $(LIBMUON_DIR)

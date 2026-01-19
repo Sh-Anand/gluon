@@ -70,8 +70,8 @@ private:
 
 using namespace ELFIO;
 
-extern "C" const unsigned char __gluon_kernel_start[];
-extern "C" const unsigned char __gluon_kernel_end[];
+const unsigned char* __gluon_kernel_start = nullptr; // TEMP FIX
+const unsigned char* __gluon_kernel_end = nullptr;
 
 struct KernelBinary {
     uint32_t start_pc = 0;
