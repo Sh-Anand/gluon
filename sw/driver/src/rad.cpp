@@ -12,7 +12,6 @@
 #include <sstream>
 #include <string>
 
-#include <elfio/elfio.hpp>
 #include <iomanip>
 
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
@@ -66,12 +65,6 @@ struct BufferWriter {
 private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
 };
-
-
-using namespace ELFIO;
-
-const unsigned char* __gluon_kernel_start = nullptr; // TEMP FIX
-const unsigned char* __gluon_kernel_end = nullptr;
 
 struct KernelBinary {
     uint32_t start_pc = 0;
@@ -137,103 +130,10 @@ static CommandStream command_stream;
 std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
     if (kernel_name.empty())
         return std::nullopt;
-    const auto* start = reinterpret_cast<const uint8_t*>(__gluon_kernel_start);
-    const auto* end = reinterpret_cast<const uint8_t*>(__gluon_kernel_end);
-    if (!start || !end || end <= start) {
-        fprintf(stderr, "radKernelLaunch: missing kernel image\n");
-        return std::nullopt;
-    }
-    size_t size = static_cast<size_t>(end - start);
-
-    std::string kernal_bin = std::string(start, end);
-    std::istringstream elf_stream(kernal_bin, std::ios::binary);
-    
-    elfio elf;
-    if (!elf.load(elf_stream)) {
-        fprintf(stderr, "radKernelLaunch: failed to load kernel image\n");
-        return std::nullopt;
-    }
-
-    uint32_t start_vaddr = 0;
-    uint32_t kernel_vaddr = 0;
-    for (const auto& sec : elf.sections) {
-        if (sec->get_type() == SHT_SYMTAB || sec->get_type() == SHT_DYNSYM) {
-            ELFIO::symbol_section_accessor syms(elf, sec.get());
-            for (unsigned i = 0; i < syms.get_symbols_num(); ++i) {
-                std::string name;
-                ELFIO::Elf64_Addr value;
-                ELFIO::Elf_Xword size;
-                unsigned char bind, type, other;
-                ELFIO::Elf_Half sec_idx;
-
-                syms.get_symbol(i, name, value, size, bind, type, sec_idx, other);
-                if (name == "_start") {
-                    start_vaddr = value;
-                    if (kernel_vaddr)
-                        break;
-                } else if (name == kernel_name) {
-                    kernel_vaddr = value;
-                    if (start_vaddr)
-                        break;
-                }
-            }
-            if (start_vaddr && kernel_vaddr)
-                break;
-        }
-    }
+    size_t size = 0;
 
 
-    uint32_t start_offset = 0;
-    uint32_t kernel_offset = 0;
-    uint32_t load_offset = 0;
-    bool found_first_load = false;
-    for (const auto& seg : elf.segments) {
-        if (seg->get_type() != PT_LOAD)
-            continue;
-        if (!found_first_load) {
-            load_offset = static_cast<uint32_t>(seg->get_offset());
-            found_first_load = true;
-        }
-        auto vaddr = seg->get_virtual_address();
-        auto filesz = seg->get_file_size();
-        if (start_vaddr >= vaddr && start_vaddr < vaddr + filesz)
-            start_offset = static_cast<uint32_t>(start_vaddr - vaddr + seg->get_offset());
-        if (kernel_vaddr >= vaddr && kernel_vaddr < vaddr + filesz)
-            kernel_offset = static_cast<uint32_t>(kernel_vaddr - vaddr + seg->get_offset());
-        if (start_offset && kernel_offset)
-            break;
-    }
-
-    if (!start_offset && !kernel_offset) {
-        fprintf(stderr, "radKernelLaunch: failed to find start or kernel offset\n");
-        return std::nullopt;
-    }
-    fprintf(stderr, "radKernelLaunch: found start offset: %u, kernel offset: %u, load offset: %u\n", 
-            start_offset, kernel_offset, load_offset);
-    return KernelBinary{start_offset, kernel_offset, start, size, load_offset};
-}
-
-std::optional<uint32_t> translateGpuAddrToElfVirtualAddress(KernelBinary &kernel_binary, uint32_t gpu_addr, uint32_t gpu_kernel_base) {
-    if (gpu_addr < gpu_kernel_base)
-        return std::nullopt;
-    uint32_t offset_in_binary = gpu_addr - gpu_kernel_base;
-    // The kernel binary is loaded at its ELF virtual address base
-    // Find the first LOAD segment to get the base virtual address
-    std::string kernel_bin = std::string(reinterpret_cast<const char*>(kernel_binary.data), kernel_binary.size);
-    std::istringstream elf_stream(kernel_bin, std::ios::binary);
-    elfio elf;
-    if (!elf.load(elf_stream))
-        return std::nullopt;
-    for (const auto& seg : elf.segments) {
-        if (seg->get_type() != PT_LOAD)
-            continue;
-        auto vaddr_base = seg->get_virtual_address();
-        auto file_offset = seg->get_offset();
-        if (file_offset == kernel_binary.load_offset) {
-            return static_cast<uint32_t>(vaddr_base + offset_in_binary);
-        }
-    }
-    return std::nullopt;
+    return KernelBinary{0, 0, nullptr, size, 0};
 }
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
@@ -448,9 +348,8 @@ void radGetError(radError *err) {
 
         if (command->cmd_type == radCmdType_KERNEL) {
             KernelCommand* kernel_command = static_cast<KernelCommand*>(command);
-            auto translated_pc = translateGpuAddrToElfVirtualAddress(kernel_command->kernel_binary, pc, kernel_command->gpu_kernel_base);
-            if (translated_pc)
-                pc = *translated_pc;
+            uint32_t translated_pc = 1; // TODO: implement this
+            pc = translated_pc;
         }
 
         if (command->cmd_type == radCmdType_MEM) {
