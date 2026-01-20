@@ -48,7 +48,7 @@ $(BUILD_DIR):
 $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(HOST_BIN): $(HOST_SRCS) $(KERNEL_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_OBJ) $(LIBMUON_A) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp \
 		$(LLVM_LDFLAGS) $(HOST_RPATH) $(LLVM_LIBS) -o $@
