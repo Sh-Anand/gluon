@@ -4,7 +4,7 @@ MUON_OBJDUMP ?= $(MUON_32)/bin/llvm-objdump
 MUON_LLVM_CONFIG ?= $(MUON_32)/bin/llvm-config
 HOST_CLANG ?= clang++
 LLVM_LDFLAGS := $(shell $(MUON_LLVM_CONFIG) --ldflags)
-LLVM_LIBS := $(shell $(MUON_LLVM_CONFIG) --libs orcjit native)
+LLVM_LIBS := $(shell $(MUON_LLVM_CONFIG) --libs orcjit riscv)
 
 RISCV_TRIPLE := riscv32-unknown-elf
 RISCV_SYSROOT := $(MUON_32)/$(RISCV_TRIPLE)
