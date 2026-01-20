@@ -17,12 +17,8 @@ KERNEL_SRC := $(firstword $(filter %_kernel.cpp,$(SRC)))
 $(if $(KERNEL_SRC),,$(error No kernel source found for $(TEST_DIR)))
 $(if $(HOST_SRCS),,$(error No host sources found for $(TEST_DIR)))
 
-BUILD_ROOT := build
-BUILD_DIR := $(BUILD_ROOT)/$(TEST_NAME)
+BUILD_DIR := build
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
-KERNEL_ELF := $(BUILD_DIR)/kernel.elf
-KERNEL_EMBED_OBJ := $(BUILD_DIR)/kernel_embed.o
-KERNEL_DISASM := $(BUILD_DIR)/kernel.dis
 HOST_BIN := $(BUILD_DIR)/$(TEST_NAME)
 HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
@@ -42,16 +38,13 @@ all: $(HOST_BIN)
 run: $(HOST_BIN)
 	cd $(REPO_ROOT) && $(HOST_BIN_ABS)
 
-$(BUILD_ROOT):
-	mkdir -p $@
-
-$(BUILD_DIR): | $(BUILD_ROOT)
+$(BUILD_DIR):
 	mkdir -p $@
 
 $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(HOST_BIN): $(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp -o $@
 
