@@ -1,7 +1,10 @@
 MUON_CLANG ?= $(MUON_32)/bin/clang
 MUON_OBJCOPY ?= $(MUON_32)/bin/llvm-objcopy
 MUON_OBJDUMP ?= $(MUON_32)/bin/llvm-objdump
+MUON_LLVM_CONFIG ?= $(MUON_32)/bin/llvm-config
 HOST_CLANG ?= clang++
+LLVM_LDFLAGS := $(shell $(MUON_LLVM_CONFIG) --ldflags)
+LLVM_LIBS := $(shell $(MUON_LLVM_CONFIG) --libs orcjit native)
 
 RISCV_TRIPLE := riscv32-unknown-elf
 RISCV_SYSROOT := $(MUON_32)/$(RISCV_TRIPLE)
@@ -19,14 +22,15 @@ $(if $(HOST_SRCS),,$(error No host sources found for $(TEST_DIR)))
 
 BUILD_DIR := build
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
+KERNEL_ELF := $(BUILD_DIR)/kernel.elf
+KERNEL_EMBED_OBJ := $(BUILD_DIR)/kernel_embed.o
 HOST_BIN := $(BUILD_DIR)/$(TEST_NAME)
 HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
 
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
-KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -Wl,-Ttext=0x10001000 -Wl,-N \
-    -L$(MUON_32)/lib/$(RISCV_TRIPLE) -L$(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
+HOST_RPATH := -Wl,-rpath,$(MUON_32)/lib
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
 LIBMUON_A := $(LIBMUON_DIR)/libmuon.a
 KERNEL_LIBS := $(LIBMUON_A) -lc -lm $(CLANG_RT_LIB)
@@ -46,11 +50,12 @@ $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 
 $(HOST_BIN): $(HOST_SRCS) $(KERNEL_OBJ) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
-		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp -o $@
+		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp \
+		$(LLVM_LDFLAGS) $(HOST_RPATH) $(LLVM_LIBS) -o $@
 
 $(LIBMUON_A):
 	$(MAKE) -C $(LIBMUON_DIR)
 
 clean:
-	rm -rf $(BUILD_ROOT)
+	rm -rf $(BUILD_DIR)
 	$(MAKE) -C $(LIBMUON_DIR) clean
