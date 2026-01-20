@@ -14,6 +14,12 @@
 
 #include <iomanip>
 
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h>
+#include <llvm/ExecutionEngine/Orc/RTDyldObjectLinkingLayer.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/TargetSelect.h>
+
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[0] = static_cast<std::uint8_t>(value & 0xFF);
     dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
