@@ -3,7 +3,7 @@ MUON_LD_LLD ?= $(MUON_32)/bin/ld.lld
 MUON_LLVM_CONFIG ?= $(MUON_32)/bin/llvm-config
 HOST_CLANG ?= clang++
 LLVM_LDFLAGS := $(shell $(MUON_LLVM_CONFIG) --ldflags)
-LLVM_LIBS := $(shell $(MUON_LLVM_CONFIG) --libs orcjit riscv)
+LLVM_LIBS := $(shell $(MUON_LLVM_CONFIG) --libs orcjit riscv jitlink)
 
 RISCV_TRIPLE := riscv32-unknown-elf
 RISCV_SYSROOT := $(MUON_32)/$(RISCV_TRIPLE)
@@ -26,9 +26,10 @@ HOST_BIN := $(BUILD_DIR)/$(TEST_NAME)
 HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
 
-KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra
-HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
-HOST_RPATH := -Wl,-rpath,$(MUON_32)/lib
+KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include -O2 -ffunction-sections -fdata-sections -fPIC -Wall -Wextra -Xclang -target-feature -Xclang +vortex
+HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include -I../driver/llvm-include
+LLVM_LIBDIR := $(shell $(MUON_LLVM_CONFIG) --libdir)
+HOST_RPATH := -Wl,-rpath,$(LLVM_LIBDIR)
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
 LIBMUON_A := $(LIBMUON_DIR)/libmuon.a
 
@@ -49,10 +50,10 @@ $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(KERNEL_BIN): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
-	$(MUON_LD_LLD) -r -o $@ $< $(LIBMUON_A)
+	$(MUON_LD_LLD) -r -o $@ $< -L$(MUON_32)/lib/$(RISCV_TRIPLE) --whole-archive $(LIBMUON_A) --no-whole-archive -lc -lm $(MUON_32)/lib/clang/18/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
 
 $(HOST_BIN): $(HOST_SRCS) $(KERNEL_BIN) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
-	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
+	$(HOST_CLANG) -std=c++17 -fno-rtti -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp \
 		$(LLVM_LDFLAGS) $(HOST_RPATH) $(LLVM_LIBS) -o $@
 
