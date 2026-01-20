@@ -20,6 +20,8 @@
 #include <llvm/Support/Error.h>
 #include <llvm/Support/TargetSelect.h>
 
+using namespace llvm;
+
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[0] = static_cast<std::uint8_t>(value & 0xFF);
     dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
@@ -132,14 +134,40 @@ public:
 };
 
 static CommandStream command_stream;
+static std::unique_ptr<orc::LLJIT> JIT;
+static uint8_t* kernel_binary_data = nullptr;
+static size_t kernel_binary_size = 0;
+static uint32_t start_pc = 0;
+
+void initLLVM() {
+    LLVMInitializeRISCVTarget();
+    LLVMInitializeRISCVTargetInfo();
+    LLVMInitializeRISCVTargetMC();
+    LLVMInitializeRISCVAsmParser();
+    LLVMInitializeRISCVAsmPrinter();
+    LLVMInitializeRISCVDisassembler();
+
+    llvm::Triple triple("riscv32-unknown-elf");
+    auto expectedJIT = orc::LLJITBuilder().setJITTargetMachineBuilder(orc::JITTargetMachineBuilder(triple))
+          .create();
+    if (!expectedJIT) {
+        auto error = expectedJIT.takeError();
+        fprintf(stderr, "radKernelLaunch: failed to create JIT: %s\n", toString(std::move(error)).c_str());
+        return;
+    }
+    JIT = std::move(expectedJIT.get());
+}
 
 std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
     if (kernel_name.empty())
         return std::nullopt;
-    size_t size = 0;
 
-
-    return KernelBinary{0, 0, nullptr, size, 0};
+    initLLVM();
+    if (!JIT) {
+        fprintf(stderr, "radKernelLaunch: failed to initialize LLVM\n");
+        return std::nullopt;
+    }
+    return KernelBinary{0, 0, nullptr, 0, 0};
 }
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
