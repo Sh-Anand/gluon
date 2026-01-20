@@ -1,6 +1,5 @@
 MUON_CLANG ?= $(MUON_32)/bin/clang
-MUON_OBJCOPY ?= $(MUON_32)/bin/llvm-objcopy
-MUON_OBJDUMP ?= $(MUON_32)/bin/llvm-objdump
+MUON_LD_LLD ?= $(MUON_32)/bin/ld.lld
 MUON_LLVM_CONFIG ?= $(MUON_32)/bin/llvm-config
 HOST_CLANG ?= clang++
 LLVM_LDFLAGS := $(shell $(MUON_LLVM_CONFIG) --ldflags)
@@ -22,8 +21,7 @@ $(if $(HOST_SRCS),,$(error No host sources found for $(TEST_DIR)))
 
 BUILD_DIR := build
 KERNEL_OBJ := $(BUILD_DIR)/kernel.o
-KERNEL_ELF := $(BUILD_DIR)/kernel.elf
-KERNEL_EMBED_OBJ := $(BUILD_DIR)/kernel_embed.o
+KERNEL_BIN := $(BUILD_DIR)/kernel.bin
 HOST_BIN := $(BUILD_DIR)/$(TEST_NAME)
 HOST_BIN_ABS := $(abspath $(HOST_BIN))
 REPO_ROOT := $(abspath ../..)
@@ -33,7 +31,6 @@ HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/inclu
 HOST_RPATH := -Wl,-rpath,$(MUON_32)/lib
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
 LIBMUON_A := $(LIBMUON_DIR)/libmuon.a
-KERNEL_LIBS := $(LIBMUON_A) -lc -lm $(CLANG_RT_LIB)
 
 .PHONY: all run clean
 
@@ -45,16 +42,19 @@ run: $(HOST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
+$(LIBMUON_A):
+	$(MAKE) -C $(LIBMUON_DIR)
+
 $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
-$(HOST_BIN): $(HOST_SRCS) $(KERNEL_OBJ) $(LIBMUON_A) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+$(KERNEL_BIN): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
+	$(MUON_LD_LLD) -r -o $@ $< $(LIBMUON_A)
+
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_BIN) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp \
 		$(LLVM_LDFLAGS) $(HOST_RPATH) $(LLVM_LIBS) -o $@
-
-$(LIBMUON_A):
-	$(MAKE) -C $(LIBMUON_DIR)
 
 clean:
 	rm -rf $(BUILD_DIR)
