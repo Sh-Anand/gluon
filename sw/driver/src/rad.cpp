@@ -14,6 +14,10 @@
 
 #include <iomanip>
 
+#include <elfio/elfio.hpp>
+
+using namespace ELFIO;
+
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[0] = static_cast<std::uint8_t>(value & 0xFF);
     dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
@@ -138,10 +142,6 @@ std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
 }
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
-
-uint32_t peekDeviceMemoryAddress() {
-    return static_cast<uint32_t>(g_device_mem_used);
-}
 
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
     static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
