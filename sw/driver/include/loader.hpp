@@ -1,3 +1,6 @@
+#ifndef LOADER_HPP
+#define LOADER_HPP
+
 #include <elfio/elfio.hpp>
 
 #include <cassert>
@@ -7,8 +10,6 @@
 using namespace ELFIO;
 
 struct GPUBinary {
-    uint32_t gpu_base_addr;
-    uint32_t start_pc;
     const uint8_t* data;
     size_t size;
 };
@@ -16,38 +17,19 @@ struct GPUBinary {
 static elfio reader;
 static std::unordered_map<std::string, uint32_t> elf_symbol_map;
 uint32_t elf_min_vaddr = 0; // this should always be 0 but keeping it just in case
-uint32_t gpu_base_addr = 0;
-uint32_t start_pc = 0;
 uint8_t* binary_data = nullptr;
 size_t size = 0;
 
-static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
-
-std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
-    static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
-    size_t aligned_bytes = bytes + (bytes % sizeof(uint32_t));
-    if (g_device_mem_used > capacity)
-        return std::nullopt;
-    if (bytes > capacity - g_device_mem_used)
-        return std::nullopt;
-    uint32_t addr = static_cast<uint32_t>(g_device_mem_used);
-    g_device_mem_used += aligned_bytes;
-    return addr;
-}
-
-uint32_t getSymbolAddress(const std::string& symbol_name) {
+uint32_t getSymbolAddress(const std::string& symbol_name, uint32_t reloc_addr) {
     assert(!symbol_name.empty() && binary_data);
     auto it = elf_symbol_map.find(symbol_name);
     assert(it != elf_symbol_map.end() && "symbol not found");
     uint32_t addr = it->second - elf_min_vaddr;
-    return gpu_base_addr + addr;
+    return reloc_addr + addr;
 }
 
-void readELF(const std::string& elf_path) {
+void parseELF(const std::string& elf_path) {
     assert(reader.load(elf_path) && "elf loading failed");
-}
-
-void parseELF() {
     uint64_t min_vaddr = UINT64_MAX;
     uint64_t max_vaddr = 0;
     for (unsigned i = 0; i < reader.segments.size(); ++i) {
@@ -66,11 +48,6 @@ void parseELF() {
 
     size_t total_size = max_vaddr - min_vaddr;
 
-    auto gpu_base_opt = allocateDeviceMemory(total_size);
-    assert(gpu_base_opt);
-    uint32_t gpu_base = *gpu_base_opt;
-    fprintf(stderr, "parseELF: Allocated GPU memory at: 0x%08x (size: %zu bytes)\n", gpu_base, total_size);
-
     uint8_t* data = (uint8_t*)calloc(1, total_size);
 
     // memcpy PT_LOADs
@@ -82,6 +59,13 @@ void parseELF() {
         memcpy(data + offset, seg->get_data(), seg->get_file_size());
     }
 
+    size = total_size;
+    binary_data = data;
+    elf_min_vaddr = min_vaddr;
+}
+
+// also builds symbol cache
+void applyRelocations(uint32_t reloc_addr) {
     // apply .rela.dyn
     section* rela_dyn_sec = nullptr;
     for (unsigned i = 0; i < reader.sections.size(); ++i) {
@@ -107,11 +91,11 @@ void parseELF() {
 
             if (type == 3) { // R_RISCV_RELATIVE
                 // assuming .rela.dyn entries always point to elf virt addrs in the PT_LOAD segments
-                size_t data_offset = offset - min_vaddr;
-                uint32_t new_value = static_cast<uint32_t>(addend + gpu_base);
-                memcpy(data + data_offset, &new_value, sizeof(uint32_t));
+                size_t data_offset = offset - elf_min_vaddr;
+                uint32_t new_value = static_cast<uint32_t>(addend + reloc_addr);
+                memcpy(binary_data + data_offset, &new_value, sizeof(uint32_t));
                 fprintf(stderr, "  [%zu] R_RISCV_RELATIVE @ 0x%08llx: %lld + 0x%x = 0x%08x\n", 
-                        j, (unsigned long long)offset, (long long)addend, gpu_base, new_value);
+                        j, (unsigned long long)offset, (long long)addend, reloc_addr, new_value);
             } else {
                 fprintf(stderr, "  [%zu] Unhandled relocation type %u @ 0x%08llx\n",
                         j, type, (unsigned long long)offset);
@@ -135,21 +119,12 @@ void parseELF() {
             break;
         }
     }
-
-    gpu_base_addr = gpu_base;
-    binary_data = data;
-    size = total_size;
-    elf_min_vaddr = min_vaddr;
-
-    uint32_t start_pc = getSymbolAddress("_start");
 }
 
-std::optional<GPUBinary> loadKernel(const std::string& kernel_name) {
-    if (kernel_name.empty())
-        return std::nullopt;
-
-    readELF("sw/test/build/kernel.elf");
-    parseELF();
-
-    return GPUBinary{gpu_base_addr, start_pc, binary_data, size};
+GPUBinary initELF() {
+    if (!binary_data)
+        parseELF("sw/test/build/kernel.elf");
+    return GPUBinary{binary_data, size};
 }
+
+#endif
