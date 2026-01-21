@@ -167,7 +167,6 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_u32(static_cast<std::uint32_t>(binary.size)) ||
         !writer.write_u32(stack_base_addr) ||
         !writer.write_u32(tls_base_addr) ||
-        !writer.write_u32(params_base_addr) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.x)) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.y)) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.z)) ||
