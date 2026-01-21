@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "rad_defs.h"
-
+#include "command.hpp"
 
 typedef struct {
     unsigned int x;
@@ -17,27 +17,14 @@ typedef struct {
     unsigned int z;
 } radDim3;
 
-enum radMemCpyDir {
-    radMemCpyDir_H2D,
-    radMemCpyDir_D2H,
-};
-
-enum radCmdType {
-    radCmdType_KERNEL,
-    radCmdType_MEM,
-    radCmdType_CSR,
-    radCmdType_FENCE,
-    radCmdType_UNDEFINED,
-};
-
-enum radMemCmdType {
-    radMemCmdType_COPY,
-    radMemCmdType_SET,
-};
-
 enum radErrorCode {
     radError_NONE,
     radError_EXECUTION,
+};
+
+enum radMemCpyDir {
+    radMemCpyDir_H2D,
+    radMemCpyDir_D2H,
 };
 
 struct radError {

@@ -2,6 +2,7 @@
 #include "driver.h"
 #include "loader.hpp"
 #include "mem.hpp"
+#include "command.hpp"
 
 #include <array>
 #include <cstdint>
@@ -64,57 +65,6 @@ private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
 };
 
-class Command {
-public:
-    uint8_t cmd_id;
-    radCmdType cmd_type;
-    Command(radCmdType cmd_type) : cmd_type(cmd_type) {}
-};
-
-class KernelCommand : public Command {
-public:
-    KernelCommand(GPUBinary gpu_binary, uint32_t gpu_kernel_base) : Command(radCmdType_KERNEL), gpu_binary(gpu_binary), gpu_kernel_base(gpu_kernel_base) {}
-    GPUBinary gpu_binary;
-    uint32_t gpu_kernel_base;
-};
-
-class CopyCommand : public Command {
-public:
-    CopyCommand(uint32_t src_addr, uint32_t dst_addr, uint32_t size, void *userspace_dst_addr, radMemCpyDir dir) :
-        Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), userspace_dst_addr(userspace_dst_addr), dir(dir) {}
-    uint32_t src_addr;
-    uint32_t dst_addr;
-    uint32_t size;
-    void *userspace_dst_addr;
-    radMemCpyDir dir;
-};
-
-class CommandStream {
-public:
-    uint8_t next_cmd_id;
-    std::vector<std::unique_ptr<Command>> commands;
-
-    CommandStream() : next_cmd_id(0) {
-        fprintf(stderr, "CommandStream: initialized\n");
-    }
-
-    uint8_t add_command(std::unique_ptr<Command> command) {
-        command->cmd_id = next_cmd_id++;
-        uint8_t cmd_id = command->cmd_id;
-        commands.push_back(std::move(command));
-        return cmd_id;
-    }
-
-    Command* ack_command(uint8_t cmd_id) {
-        for (auto& command : commands) {
-            if (command->cmd_id == cmd_id)
-                return command.get();
-        }
-        return nullptr;
-    }
-    
-};
-
 static CommandStream command_stream;
 
 void radKernelLaunch(const char *kernel_name,
@@ -122,7 +72,7 @@ void radKernelLaunch(const char *kernel_name,
                                  radDim3 block_dim,
                                  radParamBuf* params) {
     
-    GPUBinary binary = initELF();
+    ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
  
     std::size_t params_size = 0;
     const uint8_t* params_data = nullptr;
@@ -132,20 +82,16 @@ void radKernelLaunch(const char *kernel_name,
             params_data = params->data();
     }
 
-    size_t payload_size = KERNEL_HEADER_MEM_END + params_size + binary.size;
+    size_t payload_size = KERNEL_HEADER_MEM_END + params_size + loader->size;
     auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
     assert(kernel_payload_addr_opt);
     uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
     uint32_t kernel_reloc_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END + params_size;
     
     // apply relocations
-    applyRelocations(kernel_reloc_addr);
-    uint32_t start_pc = getSymbolAddress("_start", kernel_reloc_addr);
-    uint32_t kernel_pc = getSymbolAddress(kernel_name, kernel_reloc_addr);
-
-    fprintf(stderr, "DEBUG: kernel_payload_addr=0x%08x kernel_reloc_addr=0x%08x\n", kernel_payload_addr, kernel_reloc_addr);
-    fprintf(stderr, "DEBUG: _start symbol raw=0x%08x, start_pc=0x%08x\n", elf_symbol_map["_start"], start_pc);
-    fprintf(stderr, "DEBUG: %s symbol raw=0x%08x, kernel_pc=0x%08x\n", kernel_name, elf_symbol_map[kernel_name], kernel_pc);
+    loader->applyRelocations(kernel_reloc_addr);
+    uint32_t start_pc = loader->getSymbolAddress("_start", kernel_reloc_addr);
+    uint32_t kernel_pc = loader->getSymbolAddress(kernel_name, kernel_reloc_addr);
 
     // allocate stack space in GPU mem
     auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
@@ -164,7 +110,7 @@ void radKernelLaunch(const char *kernel_name,
     if (!writer.write_u32(start_pc) ||
         !writer.write_u32(kernel_pc) ||
         !writer.write_u32(static_cast<std::uint32_t>(params_size)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(binary.size)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(loader->size)) ||
         !writer.write_u32(stack_base_addr) ||
         !writer.write_u32(tls_base_addr) ||
         !writer.write_u32(static_cast<std::uint32_t>(grid_dim.x)) ||
@@ -179,7 +125,7 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, params_size) ||
-        !writer.write_block(binary.data, binary.size) ||
+        !writer.write_block(loader->binary_data, loader->size) ||
         !writer.finished()) {
         fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
         return;
@@ -190,7 +136,7 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
 
-    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(binary, kernel_reloc_addr));
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
 
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = cmd_id;
@@ -287,7 +233,7 @@ void radGetError(radError *err) {
 
         if (command->cmd_type == radCmdType_MEM) {
             CopyCommand* copy_command = static_cast<CopyCommand*>(command);
-            if (copy_command->dir == radMemCpyDir_D2H) {
+            if (copy_command->d2h) {
                 void *shared_mem_base = rad::GetSharedMemoryBase();
                 if (!shared_mem_base) {
                     fprintf(stderr, "radGetError: shared memory not initialized\n");
