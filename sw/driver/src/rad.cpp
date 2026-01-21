@@ -147,7 +147,6 @@ void radKernelLaunch(const char *kernel_name,
     }
     
     // Allocate space for header + padding up to code base + kernel binary (skip ELF header)
-    size_t loadable_size = kernel_binary->size - kernel_binary->load_offset;
     size_t header_to_code = KERNEL_LOAD_ADDR - KERNEL_HEADER_START_ADDR;
     size_t code_pad = header_to_code - KERNEL_HEADER_BYTES;
     if (params_size > code_pad) {
@@ -157,10 +156,10 @@ void radKernelLaunch(const char *kernel_name,
 
     uint32_t gpu_mem_kernel_bin_start = KERNEL_HEADER_START_ADDR;
 
-    uint32_t gpu_mem_start_pc = KERNEL_LOAD_ADDR + (kernel_binary->start_pc - kernel_binary->load_offset);
-    uint32_t gpu_mem_kernel_pc = KERNEL_LOAD_ADDR + (kernel_binary->kernel_pc - kernel_binary->load_offset);
+    uint32_t gpu_mem_start_pc = KERNEL_LOAD_ADDR + kernel_binary->start_pc;
+    uint32_t gpu_mem_kernel_pc = gpu_mem_start_pc;
 
-    size_t payload_size = header_to_code + loadable_size;
+    size_t payload_size = header_to_code + kernel_binary->size;
     
     if (payload_size == 0) {
         fprintf(stderr, "radKernelLaunch: empty payload size\n");
@@ -208,7 +207,7 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, params_size) ||
         !writer.write_zero(code_pad - params_size) ||
-        !writer.write_block(kernel_binary->data + kernel_binary->load_offset, loadable_size) ||
+        !writer.write_block(kernel_binary->data, kernel_binary->size) ||
         !writer.finished()) {
         fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
         return;

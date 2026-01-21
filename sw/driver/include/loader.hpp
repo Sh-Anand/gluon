@@ -6,10 +6,8 @@ using namespace ELFIO;
 
 struct KernelBinary {
     uint32_t start_pc = 0;
-    uint32_t kernel_pc = 0;
     const uint8_t* data;
     size_t size = 0;
-    uint32_t load_offset = 0;  // File offset where loadable data starts
 };
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
@@ -26,73 +24,127 @@ std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
     return addr;
 }
 
+int parseELF() {
+elfio reader;
+    if (!reader.load("sw/test/build/kernel.elf")) {
+        fprintf(stderr, "loadKernelBinary: failed to load sw/test/build/kernel.elf\n");
+        return -1;
+    }
+
+    uint64_t min_vaddr = UINT64_MAX;
+    uint64_t max_vaddr = 0;
+    for (unsigned i = 0; i < reader.segments.size(); ++i) {
+        const segment* seg = reader.segments[i];
+        if (seg->get_type() != PT_LOAD)
+            continue;
+        uint64_t seg_start = seg->get_virtual_address();
+        uint64_t seg_end = seg_start + seg->get_memory_size();
+        if (seg_start < min_vaddr)
+            min_vaddr = seg_start;
+        if (seg_end > max_vaddr)
+            max_vaddr = seg_end;
+    }
+
+    if (min_vaddr == UINT64_MAX || max_vaddr == 0) {
+        fprintf(stderr, "loadKernelBinary: no PT_LOAD segments found\n");
+        return -1;
+    }
+
+    size_t total_size = max_vaddr - min_vaddr;
+
+    uint8_t* data = (uint8_t*)calloc(1, total_size);
+
+    // allocate GPU memory
+    auto gpu_base_opt = allocateDeviceMemory(total_size);
+    if (!gpu_base_opt) {
+        fprintf(stderr, "loadKernelBinary: failed to allocate %llu bytes of GPU memory\n",
+                (unsigned long long)total_size);
+        return -1;
+    }
+    uint32_t gpu_base = *gpu_base_opt;
+    fprintf(stderr, "loadKernelBinary: Allocated GPU memory at: 0x%08x (size: %zu bytes)\n", gpu_base, total_size);
+
+    // find .rela.dyn section for dynamic relocations
+    section* rela_dyn_sec = nullptr;
+    for (unsigned i = 0; i < reader.sections.size(); ++i) {
+        if (reader.sections[i]->get_name() == ".rela.dyn") {
+            rela_dyn_sec = reader.sections[i];
+            break;
+        }
+    }
+
+    if (!rela_dyn_sec) {
+        fprintf(stderr, "loadKernelBinary: No .rela.dyn section found\n");
+    } else {
+        // find symbol table for resolving symbols
+        section* symtab_sec = nullptr;
+        for (unsigned i = 0; i < reader.sections.size(); ++i) {
+            if (reader.sections[i]->get_type() == SHT_DYNSYM || reader.sections[i]->get_type() == SHT_SYMTAB) {
+                symtab_sec = reader.sections[i];
+                break;
+            }
+        }
+        symbol_section_accessor* symbols = nullptr;
+        if (symtab_sec)
+            symbols = new symbol_section_accessor(reader, symtab_sec);
+
+        size_t num_entries = rela_dyn_sec->get_size() / rela_dyn_sec->get_entry_size();
+        fprintf(stderr, ".rela.dyn: %zu entries\n", num_entries);
+        fprintf(stderr, "  %-10s %-24s %-10s %s\n", "Offset", "TypeName", "Addend", "Symbol");
+
+        relocation_section_accessor rela(reader, rela_dyn_sec);
+        for (size_t j = 0; j < num_entries; ++j) {
+            Elf64_Addr offset;
+            Elf_Word symbol_idx;
+            unsigned type;
+            Elf_Sxword addend;
+            rela.get_entry(j, offset, symbol_idx, type, addend);
+
+            const char* type_name = "UNKNOWN";
+            switch (type) {
+                case 0:  type_name = "R_RISCV_NONE"; break;
+                case 1:  type_name = "R_RISCV_32"; break;
+                case 2:  type_name = "R_RISCV_64"; break;
+                case 3:  type_name = "R_RISCV_RELATIVE"; break;
+                case 5:  type_name = "R_RISCV_JUMP_SLOT"; break;
+                case 10: type_name = "R_RISCV_TLS_DTPMOD32"; break;
+                case 11: type_name = "R_RISCV_TLS_DTPREL32"; break;
+                case 12: type_name = "R_RISCV_TLS_TPREL32"; break;
+                default: break;
+            }
+
+            std::string sym_name = "";
+            Elf64_Addr sym_value = 0;
+            if (symbols && symbol_idx > 0) {
+                Elf_Xword sym_size;
+                unsigned char sym_bind, sym_type, sym_other;
+                Elf_Half sym_section;
+                symbols->get_symbol(symbol_idx, sym_name, sym_value, sym_size, sym_bind, sym_type, sym_section, sym_other);
+            }
+
+            fprintf(stderr, "  0x%08llx %-24s %-10lld %s (0x%llx)\n",
+                    (unsigned long long)offset,
+                    type_name,
+                    (long long)addend,
+                    sym_name.empty() ? "<none>" : sym_name.c_str(),
+                    (unsigned long long)sym_value);
+        }
+        fprintf(stderr, "\n");
+
+        delete symbols;
+    }
+
+    return 0;
+}
+
 std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
     if (kernel_name.empty())
         return std::nullopt;
 
-    elfio reader;
-    if (!reader.load("sw/test/build/kernel.elf")) {
-        fprintf(stderr, "loadKernelBinary: failed to load sw/test/build/kernel.elf\n");
+    if (parseELF() != 0) {
+        fprintf(stderr, "loadKernelBinary: failed to parse ELF file\n");
         return std::nullopt;
     }
 
-    fprintf(stderr, "Segments (%d):\n", (int)reader.segments.size());
-    fprintf(stderr, "  [Nr] %-12s %-10s %-10s %-10s %-10s %-5s\n", "Type", "Offset", "VirtAddr", "FileSize", "MemSize", "Flags");
-    for (unsigned i = 0; i < reader.segments.size(); ++i) {
-        const segment* seg = reader.segments[i];
-        const char* type_str = "OTHER";
-        switch (seg->get_type()) {
-            case PT_NULL:    type_str = "NULL"; break;
-            case PT_LOAD:    type_str = "LOAD"; break;
-            case PT_DYNAMIC: type_str = "DYNAMIC"; break;
-            case PT_INTERP:  type_str = "INTERP"; break;
-            case PT_NOTE:    type_str = "NOTE"; break;
-            case PT_PHDR:    type_str = "PHDR"; break;
-            case PT_GNU_STACK: type_str = "GNU_STACK"; break;
-            case PT_GNU_RELRO: type_str = "GNU_RELRO"; break;
-            default: break;
-        }
-        fprintf(stderr, "  [%2d] %-12s 0x%08llx 0x%08llx 0x%08llx 0x%08llx %c%c%c\n",
-                i,
-                type_str,
-                (unsigned long long)seg->get_offset(),
-                (unsigned long long)seg->get_virtual_address(),
-                (unsigned long long)seg->get_file_size(),
-                (unsigned long long)seg->get_memory_size(),
-                (seg->get_flags() & PF_R) ? 'R' : '-',
-                (seg->get_flags() & PF_W) ? 'W' : '-',
-                (seg->get_flags() & PF_X) ? 'X' : '-');
-    }
-
-    fprintf(stderr, "\nSections (%d):\n", (int)reader.sections.size());
-    fprintf(stderr, "  [Nr] %-20s %-10s %-10s %-8s %-8s\n", "Name", "Type", "Addr", "Size", "Flags");
-    for (unsigned i = 0; i < reader.sections.size(); ++i) {
-        const section* sec = reader.sections[i];
-        const char* type_str = "OTHER";
-        switch (sec->get_type()) {
-            case SHT_NULL:     type_str = "NULL"; break;
-            case SHT_PROGBITS: type_str = "PROGBITS"; break;
-            case SHT_SYMTAB:   type_str = "SYMTAB"; break;
-            case SHT_STRTAB:   type_str = "STRTAB"; break;
-            case SHT_RELA:     type_str = "RELA"; break;
-            case SHT_HASH:     type_str = "HASH"; break;
-            case SHT_DYNAMIC:  type_str = "DYNAMIC"; break;
-            case SHT_NOTE:     type_str = "NOTE"; break;
-            case SHT_NOBITS:   type_str = "NOBITS"; break;
-            case SHT_REL:      type_str = "REL"; break;
-            case SHT_DYNSYM:   type_str = "DYNSYM"; break;
-            default: break;
-        }
-        fprintf(stderr, "  [%2d] %-20s %-10s 0x%08llx %8lld %c%c%c\n",
-                i,
-                sec->get_name().c_str(),
-                type_str,
-                (unsigned long long)sec->get_address(),
-                (unsigned long long)sec->get_size(),
-                (sec->get_flags() & SHF_WRITE) ? 'W' : '-',
-                (sec->get_flags() & SHF_ALLOC) ? 'A' : '-',
-                (sec->get_flags() & SHF_EXECINSTR) ? 'X' : '-');
-    }
-
-    return KernelBinary{0, 0, nullptr, 0, 0};
+    return KernelBinary{0, nullptr, 0};
 }
