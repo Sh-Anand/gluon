@@ -1,5 +1,6 @@
 #include "rad.h"
 #include "driver.h"
+#include "loader.hpp"
 
 #include <array>
 #include <cstdint>
@@ -9,14 +10,6 @@
 #include <memory>
 #include <new>
 #include <optional>
-#include <sstream>
-#include <string>
-
-#include <iomanip>
-
-#include <elfio/elfio.hpp>
-
-using namespace ELFIO;
 
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     dst[0] = static_cast<std::uint8_t>(value & 0xFF);
@@ -68,14 +61,6 @@ struct BufferWriter {
 
 private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
-};
-
-struct KernelBinary {
-    uint32_t start_pc = 0;
-    uint32_t kernel_pc = 0;
-    const uint8_t* data;
-    size_t size = 0;
-    uint32_t load_offset = 0;  // File offset where loadable data starts
 };
 
 class Command {
@@ -130,16 +115,6 @@ public:
 };
 
 static CommandStream command_stream;
-static uint8_t* kernel_binary_data = nullptr;
-static size_t kernel_binary_size = 0;
-static uint32_t start_pc = 0;
-
-std::optional<KernelBinary> loadKernelBinary(const std::string& kernel_name) {
-    if (kernel_name.empty())
-        return std::nullopt;
-
-    return KernelBinary{0, 0, nullptr, 0, 0};
-}
 
 static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
 
