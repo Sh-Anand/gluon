@@ -1,6 +1,7 @@
 #include "rad.h"
 #include "driver.h"
 #include "loader.hpp"
+#include "mem.hpp"
 
 #include <array>
 #include <cstdint>
@@ -72,8 +73,8 @@ public:
 
 class KernelCommand : public Command {
 public:
-    KernelCommand(KernelBinary kernel_binary, uint32_t gpu_kernel_base) : Command(radCmdType_KERNEL), kernel_binary(kernel_binary), gpu_kernel_base(gpu_kernel_base) {}
-    KernelBinary kernel_binary;
+    KernelCommand(GPUBinary gpu_binary, uint32_t gpu_kernel_base) : Command(radCmdType_KERNEL), gpu_binary(gpu_binary), gpu_kernel_base(gpu_kernel_base) {}
+    GPUBinary gpu_binary;
     uint32_t gpu_kernel_base;
 };
 
@@ -121,23 +122,8 @@ void radKernelLaunch(const char *kernel_name,
                                  radDim3 block_dim,
                                  radParamBuf* params) {
     
-    if (!kernel_name)
-        return;
-    auto kernel_binary = loadKernelBinary(kernel_name);
-    if (!kernel_binary)
-        return;
-    if (grid_dim.x > UINT16_MAX || grid_dim.y > UINT16_MAX || grid_dim.z > UINT16_MAX) {
-        fprintf(stderr, "radKernelLaunch: grid dimension exceeds limit\n");
-        return;
-    }
-    if (block_dim.x > UINT16_MAX || block_dim.y > UINT16_MAX || block_dim.z > UINT16_MAX) {
-        fprintf(stderr, "radKernelLaunch: block dimension exceeds limit\n");
-        return;
-    }
-    if (kernel_binary->size > UINT32_MAX) {
-        fprintf(stderr, "radKernelLaunch: binary too large\n");
-        return;
-    }
+    GPUBinary binary = initELF();
+ 
     std::size_t params_size = 0;
     const uint8_t* params_data = nullptr;
     if (params) {
@@ -145,52 +131,40 @@ void radKernelLaunch(const char *kernel_name,
         if (params_size > 0)
             params_data = params->data();
     }
+
+    size_t payload_size = KERNEL_HEADER_MEM_END + params_size + binary.size;
+    auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
+    assert(kernel_payload_addr_opt);
+    uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
+    uint32_t kernel_reloc_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END + params_size;
     
-    // Allocate space for header + padding up to code base + kernel binary (skip ELF header)
-    size_t header_to_code = KERNEL_LOAD_ADDR - KERNEL_HEADER_START_ADDR;
-    size_t code_pad = header_to_code - KERNEL_HEADER_BYTES;
-    if (params_size > code_pad) {
-        fprintf(stderr, "radKernelLaunch: params too large for header padding\n");
-        return;
-    }
+    // apply relocations
+    applyRelocations(kernel_reloc_addr);
+    uint32_t start_pc = getSymbolAddress("_start", kernel_reloc_addr);
+    uint32_t kernel_pc = getSymbolAddress(kernel_name, kernel_reloc_addr);
 
-    uint32_t gpu_mem_kernel_bin_start = KERNEL_HEADER_START_ADDR;
-
-    uint32_t gpu_mem_start_pc = KERNEL_LOAD_ADDR + kernel_binary->start_pc;
-    uint32_t gpu_mem_kernel_pc = gpu_mem_start_pc;
-
-    size_t payload_size = header_to_code + kernel_binary->size;
-    
-    if (payload_size == 0) {
-        fprintf(stderr, "radKernelLaunch: empty payload size\n");
-        return;
-    }
-    std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
+    fprintf(stderr, "DEBUG: kernel_payload_addr=0x%08x kernel_reloc_addr=0x%08x\n", kernel_payload_addr, kernel_reloc_addr);
+    fprintf(stderr, "DEBUG: _start symbol raw=0x%08x, start_pc=0x%08x\n", elf_symbol_map["_start"], start_pc);
+    fprintf(stderr, "DEBUG: %s symbol raw=0x%08x, kernel_pc=0x%08x\n", kernel_name, elf_symbol_map[kernel_name], kernel_pc);
 
     // allocate stack space in GPU mem
     auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
-    if (!stack_base_addr_opt) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate stack space on gpu\n");
-        return;
-    }
+    assert(stack_base_addr_opt);
     uint32_t stack_base_addr = *stack_base_addr_opt + KERNEL_STACK_SIZE - 4;
 
     // allocate tls space
     auto tls_base_addr_opt = allocateDeviceMemory(KERNEL_TLS_SIZE);
-    if (!tls_base_addr_opt) {
-        fprintf(stderr, "radKernelLaunch: failed to allocate tls space on gpu\n");
-        return;
-    }
+    assert(tls_base_addr_opt);
     uint32_t tls_base_addr = *tls_base_addr_opt;
 
-    uint32_t params_base_addr = gpu_mem_kernel_bin_start + KERNEL_HEADER_BYTES;
+    uint32_t params_base_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END;
 
-    // Write header, params, padding, and kernel binary into payload
+    std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
     BufferWriter writer{payload.get(), payload.get() + payload_size};
-    if (!writer.write_u32(gpu_mem_start_pc) ||
-        !writer.write_u32(gpu_mem_kernel_pc) ||
+    if (!writer.write_u32(start_pc) ||
+        !writer.write_u32(kernel_pc) ||
         !writer.write_u32(static_cast<std::uint32_t>(params_size)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(kernel_binary->size)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(binary.size)) ||
         !writer.write_u32(stack_base_addr) ||
         !writer.write_u32(tls_base_addr) ||
         !writer.write_u32(params_base_addr) ||
@@ -206,8 +180,7 @@ void radKernelLaunch(const char *kernel_name,
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, params_size) ||
-        !writer.write_zero(code_pad - params_size) ||
-        !writer.write_block(kernel_binary->data, kernel_binary->size) ||
+        !writer.write_block(binary.data, binary.size) ||
         !writer.finished()) {
         fprintf(stderr, "radKernelLaunch: failed to populate payload\n");
         return;
@@ -218,14 +191,14 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
 
-    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(*kernel_binary, gpu_mem_kernel_bin_start));
+    uint8_t cmd_id = command_stream.add_command(std::make_unique<KernelCommand>(binary, kernel_reloc_addr));
 
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = cmd_id;
     header_bytes[1] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
-    write_u32_le(header_bytes.data() + 10, gpu_mem_kernel_bin_start);
+    write_u32_le(header_bytes.data() + 10, kernel_payload_addr);
     auto response = rad::SubmitCommand(header_bytes, payload.get(), payload_size);
     if (!response)
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
