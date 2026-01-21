@@ -79,6 +79,7 @@ pub enum GLULState {
 }
 
 pub struct GLUL {
+    id: usize,
     status: GLULStatus,
     cores: Vec<(MuonCore, bool)>, // core, scheduled
     neutrino: Neutrino,
@@ -201,6 +202,7 @@ impl Clocked for GLUL {
 
 impl GLUL {
     pub fn new_with_logger_dram(
+        glul_id: usize,
         config: GLULConfig,
         gluon_logger: Arc<Logger>,
         muon_logger: Arc<Logger>,
@@ -216,9 +218,10 @@ impl GLUL {
             lane_config: LaneConfig::default(),
         };
         GLUL {
+            id: glul_id,
             status: GLULStatus::new(config),
             cores: (0..config.num_cores)
-                .map(|i| (MuonCore::new(Arc::new(muon_config), i, &muon_logger, dram.clone()), false))
+                .map(|i| (MuonCore::new(Arc::new(muon_config), glul_id, i, &muon_logger, dram.clone()), false))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger: gluon_logger,

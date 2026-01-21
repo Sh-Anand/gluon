@@ -65,7 +65,8 @@ impl Configurable<GLUGConfig> for GLUG {
         let gluls = glul_configs
             .iter()
             .copied()
-            .map(|config| GLUL::new_with_logger_dram(config, logger.clone(), muon_logger.clone(), dram.clone()))
+            .enumerate()
+            .map(|(idx, config)| GLUL::new_with_logger_dram(idx, config, logger.clone(), muon_logger.clone(), dram.clone()))
             .collect::<Vec<_>>();
 
         let mut engines = engine_config.generate_engines(logger.clone());
