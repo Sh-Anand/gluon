@@ -29,7 +29,7 @@ REPO_ROOT := $(abspath ../..)
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include
 KERNEL_CFLAGS += -O3 -fno-builtin-memset -fno-builtin-memcpy -ffunction-sections -fdata-sections -fPIC -fno-unwind-tables -fno-asynchronous-unwind-tables
 KERNEL_CFLAGS += -Wall -Wextra -Xclang -target-feature -Xclang +vortex
-KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,--no-relax -Wl,--emit-relocs -Wl,-pie \
+KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,-pie \
     -L$(MUON_32)/lib/$(RISCV_TRIPLE) -L$(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
 LIBMUON_DIR := $(REPO_ROOT)/sw/libmuon/gluon
