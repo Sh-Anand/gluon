@@ -158,7 +158,7 @@ impl Clocked for GLUL {
                             "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
                         );
                         let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
-                        core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.pp);
+                    core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp);
                         core.1 = true;
                     });
                 });
@@ -172,13 +172,15 @@ impl Clocked for GLUL {
                         self.state = GLULState::S3;
                     }
                 });
-                self.neutrino.tick_one();
-                self.neutrino
-                    .update(&mut self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| &mut core.scheduler).collect());
+                if self.state == GLULState::S2 {
+                    self.neutrino.tick_one();
+                    self.neutrino
+                        .update(&mut self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| &mut core.scheduler).collect());
 
-                if self.cores.iter().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).all(|core| core.all_warps_retired()) {
-                    self.err = Ok(());
-                    self.state = GLULState::S3;
+                    if self.cores.iter().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).all(|core| core.all_warps_retired()) {
+                        self.err = Ok(());
+                        self.state = GLULState::S3;
+                    }
                 }
             }
             GLULState::S3 => {

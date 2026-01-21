@@ -113,7 +113,7 @@ pub struct ThreadBlocks {
     pub block_dim: (u32, u32, u32),
     pub regs: u32,
     pub shmem: u32,
-    pub pp: u32,
+    pub bp: u32,
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Event {
