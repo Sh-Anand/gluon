@@ -38,7 +38,7 @@ impl<T: Default> Queue<T> {
         self.data.pop_front()
     }
 
-    pub fn peek(&mut self) -> Option<&T> {
+    pub fn peek(&self) -> Option<&T> {
         self.data.front()
     }
 
