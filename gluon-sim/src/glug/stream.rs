@@ -30,11 +30,13 @@ impl Configurable<StreamConfig> for Stream {
 }
 
 impl Stream {
-    pub fn can_enqueue(&self, sq_idx: usize) -> bool {
-        !self.sq[sq_idx].full()
+    pub fn can_enqueue(&self, sid: u8) -> bool {
+        assert!(sid < self.sq.len() as u8, "sid out of bounds");
+        !self.sq[sid as usize].full()
     }
 
-    pub fn enqueue(&mut self, sq_idx: usize, cmd: Command) {
-        self.sq[sq_idx].push(cmd);
+    pub fn enqueue(&mut self, sid: u8, cmd: Command) {
+        assert!(sid < self.sq.len() as u8, "sid out of bounds");
+        self.sq[sid as usize].push(cmd);
     }
 }
