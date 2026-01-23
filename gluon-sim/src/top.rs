@@ -36,14 +36,6 @@ pub struct Top {
 }
 
 impl Top {
-    pub fn new(config: TopConfig) -> Self {
-        Top {
-            glug: GLUG::new(config.glug),
-            cycles_elapsed: 0,
-            cycles_timeout: config.sim.timeout_cycles,
-        }
-    }
-
     pub fn submit_command(&mut self, command: Command) {
         self.glug.submit_command(command);
     }
@@ -75,7 +67,11 @@ impl Clocked for Top {
 }
 
 impl Configurable<TopConfig> for Top {
-    fn new(config: TopConfig) -> Self {
-        Top::new(config)
+    fn new(config: &TopConfig) -> Self {
+        Top {
+            glug: GLUG::new(&config.glug),
+            cycles_elapsed: 0,
+            cycles_timeout: config.sim.timeout_cycles,
+        }
     }
 }

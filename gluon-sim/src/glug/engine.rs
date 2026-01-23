@@ -13,7 +13,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 pub trait Engine: Clocked + Send {
-    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize);
+    fn set_cmd(&mut self, cmd: EngineCommand);
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
     fn set_logger(&mut self, logger: Arc<Logger>);
@@ -26,7 +26,7 @@ pub trait Engine: Clocked + Send {
     fn clear_glul_req(&mut self);
     fn notify_glul_done(&mut self, tbs: u32);
     fn notify_glul_err(&mut self, err: ExecErr);
-    fn get_completion(&self) -> Option<(Event, usize)>;
+    fn get_completion(&self) -> Option<Event>;
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,15 +60,15 @@ impl EngineConfig {
 
     pub fn generate_engines(&self, logger: Arc<Logger>) -> Vec<Box<dyn Engine>> {
         let mut engines: Vec<Box<dyn Engine>> = repeat_with(|| {
-            Box::new(KernelEngine::new(self.kernel_engine_config.clone())) as Box<dyn Engine>
+            Box::new(KernelEngine::new(&self.kernel_engine_config)) as Box<dyn Engine>
         })
         .take(self.num_kernel_engines)
         .chain(
-            repeat_with(|| Box::new(MemEngine::new(self.mem_engine_config)) as Box<dyn Engine>)
+            repeat_with(|| Box::new(MemEngine::new(&self.mem_engine_config)) as Box<dyn Engine>)
                 .take(self.num_mem_engines),
         )
         .chain(
-            repeat_with(|| Box::new(CSEngine::new(self.cs_engine_config)) as Box<dyn Engine>)
+            repeat_with(|| Box::new(CSEngine::new(&self.cs_engine_config)) as Box<dyn Engine>)
                 .take(self.num_cs_engines),
         )
         .collect();

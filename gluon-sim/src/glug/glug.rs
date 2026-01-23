@@ -1,8 +1,9 @@
 use crate::common::base::{Clocked, CmdType, Command, Configurable, DMADir, Event, SimErr};
-use crate::glug::completion::{Completion, CompletionConfig};
+use crate::glug::completion::Completion;
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::frontend::{Frontend, FrontendConfig};
+use crate::glug::stream::{Stream, StreamConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
@@ -18,8 +19,8 @@ pub struct GLUGConfig {
     pub frontend: FrontendConfig,
     #[serde(rename = "decode_dispatch")]
     pub decode_dispatch: DecodeDispatchConfig,
+    pub stream: StreamConfig,
     pub engine: EngineConfig,
-    pub completion: CompletionConfig,
     pub gluls: Vec<GLULConfig>,
     pub gluon_log_level: u64,
     pub muon_log_level: u64,
@@ -28,9 +29,11 @@ pub struct GLUGConfig {
 pub struct GLUG {
     cmd_valid: bool,
     cmd: Command,
+    sq_idx: usize,
 
     frontend: Frontend,
     decode_dispatch: DecodeDispatch,
+    stream: Stream,
     engines: Vec<Box<dyn Engine>>,
     completion: Completion,
 
@@ -48,12 +51,17 @@ impl GLUG {
     }
 
     pub fn get_completion(&mut self) -> Option<Event> {
-        self.completion.pop_completion()
+        if let Some(event) = self.completion.try_clear_completion() {
+            self.stream.clear_in_flight(event.sid());
+            Some(event)
+        } else {
+            None
+        }
     }
 }
 
 impl Configurable<GLUGConfig> for GLUG {
-    fn new(config: GLUGConfig) -> Self {
+    fn new(config: &GLUGConfig) -> Self {
         let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
@@ -82,10 +90,12 @@ impl Configurable<GLUGConfig> for GLUG {
         GLUG {
             cmd: Command::default(),
             cmd_valid: false,
-            frontend: Frontend::new(config.frontend),
-            decode_dispatch: DecodeDispatch::new(config.decode_dispatch),
+            sq_idx: 0,
+            frontend: Frontend::new(&config.frontend),
+            decode_dispatch: DecodeDispatch::new(&config.decode_dispatch),
+            stream: Stream::new(&config.stream),
             engines,
-            completion: Completion::new(config.completion),
+            completion: Completion::new(&config.stream),
             gluls,
             dram,
             logger,
@@ -122,8 +132,8 @@ impl Clocked for GLUG {
 
         // Enqueue engine completions
         self.engines.iter_mut().for_each(|engine| {
-            if let Some((event, completion_idx)) = engine.get_completion() {
-                self.completion.set(completion_idx, event);
+            if let Some(event) = engine.get_completion() {
+                self.completion.set_completion(event);
             }
         });
 
@@ -214,13 +224,30 @@ impl Clocked for GLUG {
             .collect::<Vec<_>>()
             .iter()
             .for_each(|x| {
-                if let (Some((engine_cmd, completion_idx)), Some(engine_idx)) = x {
+                if let (Some(engine_cmd), Some(engine_idx)) = x {
                     self.engines
                         .get_mut(*engine_idx)
                         .expect("Engine idx must exist!")
-                        .set_cmd(*engine_cmd, *completion_idx);
+                        .set_cmd(*engine_cmd);
                 }
             });
+
+        // Tick stream
+        self.sq_idx = (self.sq_idx + 1) % self.stream.sq.len();
+        let decode_push_candidates = self.stream.sq
+            .iter_mut()
+            .zip(self.stream.sq_in_flight.iter())
+            .enumerate()
+            .filter(|(_, (queue, in_flight))|
+                 !**in_flight && !queue.empty() && self.decode_dispatch.can_enqueue(queue.peek().expect("impossible").cmd_type())
+            )
+            .map(|(idx, _)| idx )
+            .collect::<Vec<_>>();
+
+        if !decode_push_candidates.is_empty() {
+            let x = &decode_push_candidates[self.sq_idx % decode_push_candidates.len()];
+            self.decode_dispatch.enqueue(self.stream.try_pop(*x as u8).expect("impossible"));
+        }
 
         // Tick frontend
         if self.cmd_valid && self.frontend.command_queue.push(self.cmd) {
@@ -234,8 +261,8 @@ impl Clocked for GLUG {
             .command_queue
             .peek()
             .map(|cmd| match cmd.cmd_type() {
-                CmdType::FENCE => self.completion.eq.empty(),
-                cmd_type => self.decode_dispatch.can_enqueue(cmd_type),
+                CmdType::FENCE => self.completion.eq.iter().all(|event| event.is_none()),
+                _ => self.stream.can_enqueue(cmd.sid()),
             })
             .unwrap_or(false)
             .then(|| {
@@ -245,9 +272,7 @@ impl Clocked for GLUG {
                     .expect("Cannot be empty here")
             })
         {
-            let completion_idx = self.completion.allocate();
-            self.decode_dispatch
-                .enqueue(frontend_out_cmd, completion_idx);
+            self.stream.enqueue(frontend_out_cmd.sid(), frontend_out_cmd);
         }
 
         Ok(())

@@ -135,7 +135,7 @@ impl KernelPayload {
 }
 
 pub struct KernelEngine {
-    cmd: Option<(KernelCommand, usize)>, // (command, completion idx)
+    cmd: Option<KernelCommand>,
 
     dma_req: Option<DMAReq>,
     mem_req: Option<MemReq>,
@@ -157,7 +157,7 @@ pub struct KernelEngine {
 }
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
-    fn new(_config: KernelEngineConfig) -> Self {
+    fn new(_config: &KernelEngineConfig) -> Self {
         KernelEngine {
             cmd: None,
             dma_req: None,
@@ -178,8 +178,8 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
 }
 
 impl Engine for KernelEngine {
-    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize) {
-        self.cmd = Some((KernelCommand::from_engine_cmd(cmd), completion_idx));
+    fn set_cmd(&mut self, cmd: EngineCommand) {
+        self.cmd = Some(KernelCommand::from_engine_cmd(cmd));
     }
 
     fn busy(&self) -> bool {
@@ -238,22 +238,13 @@ impl Engine for KernelEngine {
         self.err = Some(Err(err));
     }
 
-    fn get_completion(&self) -> Option<(Event, usize)> {
+    fn get_completion(&self) -> Option<Event> {
         self.err
             .as_ref()
             .map(|err| {
                 Event::from_kernel_err(
-                    self.cmd
-                        .expect("Command not set, no completion exists")
-                        .0
-                        .sid,
+                    self.cmd.expect("Command not set, no completion exists").sid,
                     err.clone(),
-                )
-            })
-            .map(|event| {
-                (
-                    event,
-                    self.cmd.expect("Command not set, no completion exists").1,
                 )
             })
     }
@@ -270,7 +261,7 @@ impl Clocked for KernelEngine {
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
-                        cmd.0.sid, cmd.0.host_addr, cmd.0.sz, cmd.0.gpu_addr
+                        cmd.sid, cmd.host_addr, cmd.sz, cmd.gpu_addr
                     );
                 }
             }
@@ -288,14 +279,12 @@ impl Clocked for KernelEngine {
                     dma_req.src_addr = self
                         .cmd
                         .expect("Unreachable:Kernel command not set")
-                        .0
                         .host_addr;
                     dma_req.target_addr = self
                         .cmd
                         .expect("Unreachable:Kernel command not set")
-                        .0
                         .gpu_addr;
-                    dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").0.sz;
+                    dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").sz;
                     self.dma_req = Some(dma_req);
                     info!(
                         self.logger,
@@ -326,7 +315,6 @@ impl Clocked for KernelEngine {
                         addr: self
                             .cmd
                             .expect("Unreachable:Kernel command not set")
-                            .0
                             .gpu_addr,
                         write: false,
                         bytes: size_of::<KernelPayload>() as u32,
@@ -391,7 +379,7 @@ impl Clocked for KernelEngine {
                             block_dim: self.kernel_payload.block,
                             regs: self.kernel_payload.regs_per_thread as u32,
                             shmem: self.kernel_payload.shmem_per_block,
-                            bp: self.cmd.expect("Unreachable: Kernel command not set").0.gpu_addr,
+                            bp: self.cmd.expect("Unreachable: Kernel command not set").gpu_addr,
                         });
                         self.glul_req.idx = glul_if_idx;
                     }

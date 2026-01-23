@@ -7,6 +7,7 @@ use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Arc;
 
+use gluon::common::base::Configurable;
 use gluon::common::base::{Clocked, Command};
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -14,7 +15,6 @@ use tokio::net::unix::OwnedReadHalf;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{unix::SocketAddr, UnixListener, UnixStream};
 use tokio::sync::Mutex;
-use gluon::glug::completion::CompletionConfig;
 use gluon::glug::decode_dispatch::DecodeDispatchConfig;
 use gluon::glug::engine::EngineConfig;
 use gluon::glug::engines::cs_engine::CSEngineConfig;
@@ -41,8 +41,6 @@ struct Config {
     #[serde(default, rename = "decode_dispatch")]
     decode_dispatch: DecodeDispatchConfig,
     #[serde(default)]
-    completion: CompletionConfig,
-    #[serde(default)]
     engine: EngineConfig,
     #[serde(default, rename = "kernel_engine")]
     kernel_engine: KernelEngineConfig,
@@ -68,7 +66,6 @@ impl Config {
         glug_config.frontend = self.frontend;
         glug_config.decode_dispatch = self.decode_dispatch;
         glug_config.engine = engine_config;
-        glug_config.completion = self.completion;
 
         (
             self.server,
@@ -214,7 +211,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (server_config, top_config) = config.into_server_and_top();
     let socket_path = server_config.socket_path;
 
-    let top = Arc::new(Mutex::new(Top::new(top_config)));
+    let top = Arc::new(Mutex::new(Top::new(&top_config)));
 
     if Path::new(&socket_path).exists() {
         fs::remove_file(&socket_path)?;

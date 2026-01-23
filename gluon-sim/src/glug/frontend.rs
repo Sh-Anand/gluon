@@ -22,7 +22,7 @@ pub struct Frontend {
 }
 
 impl Configurable<FrontendConfig> for Frontend {
-    fn new(config: FrontendConfig) -> Self {
+    fn new(config: &FrontendConfig) -> Self {
         Frontend {
             command_queue: Queue::new(config.command_queue_size),
         }

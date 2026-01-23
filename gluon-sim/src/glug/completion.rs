@@ -1,51 +1,34 @@
-use crate::common::{
+use crate::{common::{
     base::{Configurable, Event},
-    queue::Queue,
-};
-use serde::Deserialize;
+}, glug::stream::StreamConfig};
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(default)]
-pub struct CompletionConfig {
-    event_queue_size: usize,
-}
-
-impl Default for CompletionConfig {
-    fn default() -> Self {
-        CompletionConfig {
-            event_queue_size: 4,
-        }
-    }
-}
 pub struct Completion {
-    pub eq: Queue<(Event, bool)>,
+    pub eq: Vec<Option<Event>>,
 }
 
-impl Configurable<CompletionConfig> for Completion {
-    fn new(config: CompletionConfig) -> Self {
+impl Configurable<StreamConfig> for Completion {
+    fn new(config: &StreamConfig) -> Self {
         Completion {
-            eq: Queue::new(config.event_queue_size),
+            eq: vec![None; config.num_sq],
         }
     }
 }
 
 impl Completion {
-    // enqueue and return idx
-    pub fn allocate(&mut self) -> usize {
-        self.eq.push((Event::default(), false));
-        self.eq.len() - 1
+
+    pub fn set_completion(&mut self, event: Event) {
+        let evnt = self.eq.get_mut(event.sid() as usize).expect("sid out of bounds");
+        assert!(evnt.is_none(), "impossible unset completion for sid {}", event.sid());
+        *evnt = Some(event);
     }
 
-    pub fn set(&mut self, idx: usize, event: Event) {
-        let (evnt, done) = self.eq.get_mut(idx).expect("completion idx out of bounds");
-        *evnt = event;
-        *done = true;
-    }
-
-    pub fn pop_completion(&mut self) -> Option<Event> {
-        if let Some((_, true)) = self.eq.peek() {
-            return self.eq.pop().map(|(event, _)| event);
-        }
-        None
+    pub fn try_clear_completion(&mut self) -> Option<Event> {
+        self.eq.iter_mut()
+        .find(|event| event.is_some())
+        .map(|event| {
+            let evnt = event.take().expect("impossible");
+            *event = None;
+            evnt
+        })
     }
 }

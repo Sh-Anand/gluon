@@ -28,7 +28,7 @@ pub trait Clocked {
 }
 
 pub trait Configurable<T: Default> {
-    fn new(config: T) -> Self;
+    fn new(config: &T) -> Self;
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -121,22 +121,22 @@ pub struct Event {
 }
 
 impl Event {
-    pub fn from_kernel_err(cmd_id: u8, err: Result<(), ExecErr>) -> Self {
+    pub fn from_kernel_err(sid: u8, err: Result<(), ExecErr>) -> Self {
         if let Err(err) = err {
             let mut bytes = [0u8; 16];
-            bytes[0] = cmd_id;
+            bytes[0] = sid;
             bytes[1] = Completion::EXECUTION as u8;
             bytes[2..6].copy_from_slice(&err.pc.to_le_bytes());
             bytes[6..10].copy_from_slice(&(err.warp_id as u32).to_le_bytes());
             Event { bytes }
         } else {
-            Event::from_ok(cmd_id)
+            Event::from_ok(sid)
         }
     }
 
-    pub fn from_ok(cmd_id: u8) -> Self {
+    pub fn from_ok(sid: u8) -> Self {
         let mut bytes = [0u8; 16];
-        bytes[0] = cmd_id;
+        bytes[0] = sid;
         bytes[1] = Completion::OK as u8;
         Event { bytes }
     }
@@ -147,5 +147,9 @@ impl Event {
             warp_id: self.bytes[6] as usize,
             message: None,
         }
+    }
+
+    pub fn sid(&self) -> u8 {
+        self.bytes[0]
     }
 }

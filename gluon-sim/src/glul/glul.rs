@@ -62,9 +62,9 @@ pub struct GLULStatus {
 }
 
 impl Configurable<GLULConfig> for GLULStatus {
-    fn new(config: GLULConfig) -> Self {
+    fn new(config: &GLULConfig) -> Self {
         GLULStatus {
-            config,
+            config: config.clone(),
             busy: Arc::new(RwLock::new(false)),
         }
     }
@@ -219,7 +219,7 @@ impl GLUL {
         };
         GLUL {
             id: glul_id,
-            status: GLULStatus::new(config),
+            status: GLULStatus::new(&config),
             cores: (0..config.num_cores)
                 .map(|i| (MuonCore::new(Arc::new(muon_config), glul_id, i, &muon_logger, dram.clone()), false))
                 .collect(),

@@ -101,7 +101,7 @@ impl MemCommand {
 }
 
 pub struct MemEngine {
-    cmd: Option<(MemCommand, usize)>, // (command, completion idx)
+    cmd: Option<MemCommand>,
 
     dma_req: Option<DMAReq>,
     mem_req: Option<MemReq>,
@@ -114,8 +114,8 @@ pub struct MemEngine {
 }
 
 impl Engine for MemEngine {
-    fn set_cmd(&mut self, cmd: EngineCommand, completion_idx: usize) {
-        self.cmd = Some((MemCommand::from_engine_cmd(cmd), completion_idx));
+    fn set_cmd(&mut self, cmd: EngineCommand) {
+        self.cmd = Some(MemCommand::from_engine_cmd(cmd));
     }
 
     fn busy(&self) -> bool {
@@ -165,17 +165,16 @@ impl Engine for MemEngine {
         panic!("Mem engine: no gluls to notify");
     }
 
-    fn get_completion(&self) -> Option<(Event, usize)> {
+    fn get_completion(&self) -> Option<Event> {
         self.err.as_ref().map(|err|{
             assert!(err.is_ok(), "Mem engine: cannot error");
-            let (cmd, completion_idx) = self.cmd.expect("Command not set, no completion exists");
-            (Event::from_ok(cmd.sid), completion_idx)
+            Event::from_ok(self.cmd.expect("Command not set, no completion exists").sid)
         })
     }
 }
 
 impl Configurable<MemEngineConfig> for MemEngine {
-    fn new(_config: MemEngineConfig) -> Self {
+    fn new(_config: &MemEngineConfig) -> Self {
         MemEngine {
             cmd: None,
             dma_req: None,
@@ -193,7 +192,7 @@ impl Clocked for MemEngine {
         match self.state {
             MemEngineState::I => {
                 if let Some(cmd) = &self.cmd {
-                    match cmd.0.op {
+                    match cmd.op {
                         MemOp::COPY => {
                             self.state = MemEngineState::C0;
                         }
@@ -201,11 +200,11 @@ impl Clocked for MemEngine {
                             self.state = MemEngineState::S0;
                         }
                     }
-                    info!(self.logger, "Mem engine: command {:?}", cmd.0);
+                    info!(self.logger, "Mem engine: command {:?}", cmd);
                 }
             }
             MemEngineState::C0 => {
-                let copy_cmd = CopyCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").0.bytes);
+                let copy_cmd = CopyCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").bytes);
                 let dir = DMADir::from(copy_cmd.flags & 1 == 1);
                 self.dma_req = Some(DMAReq {
                     dir,
@@ -237,7 +236,7 @@ impl Clocked for MemEngine {
                 
             }
             MemEngineState::S0 => {
-                let set_cmd = SetCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").0.bytes);
+                let set_cmd = SetCommand::from_bytes(self.cmd.expect("Mem engine: Command not set").bytes);
                 let data = set_cmd.value.to_le_bytes().repeat((set_cmd.len / 4) as usize);
                 self.mem_req = Some(MemReq {
                     addr: set_cmd.dst,

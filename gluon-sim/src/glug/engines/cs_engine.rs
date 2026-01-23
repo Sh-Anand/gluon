@@ -17,7 +17,7 @@ pub struct CSEngine {
 }
 
 impl Engine for CSEngine {
-    fn set_cmd(&mut self, _: EngineCommand, _: usize) {}
+    fn set_cmd(&mut self, _: EngineCommand) {}
 
     fn busy(&self) -> bool {
         false
@@ -63,13 +63,13 @@ impl Engine for CSEngine {
         panic!("CSR engine: cannot notify glul err");
     }
 
-    fn get_completion(&self) -> Option<(Event, usize)> {
+    fn get_completion(&self) -> Option<Event> {
         None
     }
 }
 
 impl Configurable<CSEngineConfig> for CSEngine {
-    fn new(_config: CSEngineConfig) -> Self {
+    fn new(_config: &CSEngineConfig) -> Self {
         CSEngine {
             logger: Arc::new(Logger::new(0)),
         }
