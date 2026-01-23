@@ -217,6 +217,7 @@ void radGetError(radError *err) {
             err->cmd_id = command->cmd_id;
         } else {
             fprintf(stderr, "radGetError: command not found in stream\n");
+            return;
         }
         err->err_code = static_cast<radErrorCode>(response->at(1));
 
@@ -246,6 +247,7 @@ void radGetError(radError *err) {
 
         err->pc = pc;
 
+        command_stream.pop_command();
         return;
     }
 }

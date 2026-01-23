@@ -55,18 +55,24 @@ public:
     }
 
     uint8_t add_command(std::unique_ptr<Command> command) {
-        command->cmd_id = next_cmd_id++;
+        command->cmd_id = 0;
         uint8_t cmd_id = command->cmd_id;
         commands.push_back(std::move(command));
         return cmd_id;
     }
 
     Command* ack_command(uint8_t cmd_id) {
-        for (auto& command : commands) {
-            if (command->cmd_id == cmd_id)
-                return command.get();
-        }
-        return nullptr;
+        // HACK: commands retire in order, so just pop from front
+        (void)cmd_id;
+        if (commands.empty())
+            return nullptr;
+        Command* cmd = commands.front().get();
+        return cmd;
+    }
+
+    void pop_command() {
+        if (!commands.empty())
+            commands.erase(commands.begin());
     }
     
 };
