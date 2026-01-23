@@ -33,7 +33,7 @@ pub struct KernelEngineConfig {}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KernelCommand {
-    pub id: u8,
+    pub sid: u8,
     pub host_addr: u32,
     pub sz: u32,
     pub gpu_addr: u32,
@@ -48,15 +48,15 @@ impl KernelCommand {
         let gpu_addr = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
 
         KernelCommand {
-            id: cmd.id(),
+            sid: cmd.sid(),
             host_addr,
             sz,
             gpu_addr,
         }
     }
 
-    pub fn id(&self) -> u8 {
-        self.id
+    pub fn sid(&self) -> u8 {
+        self.sid
     }
 }
 
@@ -246,7 +246,7 @@ impl Engine for KernelEngine {
                     self.cmd
                         .expect("Command not set, no completion exists")
                         .0
-                        .id,
+                        .sid,
                     err.clone(),
                 )
             })
@@ -270,7 +270,7 @@ impl Clocked for KernelEngine {
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
-                        cmd.0.id, cmd.0.host_addr, cmd.0.sz, cmd.0.gpu_addr
+                        cmd.0.sid, cmd.0.host_addr, cmd.0.sz, cmd.0.gpu_addr
                     );
                 }
             }

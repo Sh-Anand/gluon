@@ -51,7 +51,7 @@ impl Command {
         }
     }
 
-    pub fn id(&self) -> u8 {
+    pub fn sid(&self) -> u8 {
         self.bytes[0]
     }
 

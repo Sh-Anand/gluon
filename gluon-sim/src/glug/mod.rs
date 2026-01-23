@@ -4,3 +4,4 @@ pub mod engine;
 pub mod engines;
 pub mod frontend;
 pub mod glug;
+pub mod stream;

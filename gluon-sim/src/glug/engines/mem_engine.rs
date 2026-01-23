@@ -42,7 +42,7 @@ impl From<u8> for MemOp {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct MemCommand {
-    pub id: u8,
+    pub sid: u8,
     pub op: MemOp,
     pub bytes: [u8; 13],
 }
@@ -93,7 +93,7 @@ impl MemCommand {
         let bytes = engine_bytes[1..14].try_into().unwrap();
 
         MemCommand {
-            id: cmd.id(),
+            sid: cmd.sid(),
             op,
             bytes,
         }
@@ -169,7 +169,7 @@ impl Engine for MemEngine {
         self.err.as_ref().map(|err|{
             assert!(err.is_ok(), "Mem engine: cannot error");
             let (cmd, completion_idx) = self.cmd.expect("Command not set, no completion exists");
-            (Event::from_ok(cmd.id), completion_idx)
+            (Event::from_ok(cmd.sid), completion_idx)
         })
     }
 }
