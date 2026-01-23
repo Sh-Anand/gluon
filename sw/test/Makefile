@@ -58,8 +58,11 @@ $(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
 $(KERNEL_DISASM): $(KERNEL_ELF)
 	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) -M no-aliases $< > $@
 
-$(HOST_BIN): $(HOST_SRCS) $(KERNEL_DISASM) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+.PHONY: copy_kernel
+copy_kernel: $(KERNEL_ELF)
 	cp $(KERNEL_ELF) $(BUILD_ROOT)/kernel.elf
+
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_DISASM) copy_kernel ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
 		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp -o $@
 
