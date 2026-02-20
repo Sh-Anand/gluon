@@ -21,7 +21,6 @@ enum radMemCmdType {
 
 class Command {
 public:
-    uint8_t cmd_id;
     radCmdType cmd_type;
     Command(radCmdType cmd_type) : cmd_type(cmd_type) {}
 };
@@ -43,38 +42,6 @@ public:
     uint32_t size;
     void *userspace_dst_addr;
     bool d2h;
-};
-
-class CommandStream {
-public:
-    uint8_t next_cmd_id;
-    std::vector<std::unique_ptr<Command>> commands;
-
-    CommandStream() : next_cmd_id(0) {
-        fprintf(stderr, "CommandStream: initialized\n");
-    }
-
-    uint8_t add_command(std::unique_ptr<Command> command) {
-        command->cmd_id = 0;
-        uint8_t cmd_id = command->cmd_id;
-        commands.push_back(std::move(command));
-        return cmd_id;
-    }
-
-    Command* ack_command(uint8_t cmd_id) {
-        // HACK: commands retire in order, so just pop from front
-        (void)cmd_id;
-        if (commands.empty())
-            return nullptr;
-        Command* cmd = commands.front().get();
-        return cmd;
-    }
-
-    void pop_command() {
-        if (!commands.empty())
-            commands.erase(commands.begin());
-    }
-    
 };
 
 #endif // COMMAND_HPP

@@ -11,11 +11,11 @@
 #include "rad_defs.h"
 #include "command.hpp"
 
-typedef struct {
+struct radDim3 {
     unsigned int x;
     unsigned int y;
     unsigned int z;
-} radDim3;
+};
 
 enum radErrorCode {
     radError_NONE,
@@ -75,7 +75,7 @@ struct radParamBuf {
 struct radStream {
     std::size_t id;
     uint8_t hw_sid;
-    CommandStream command_stream;
+    std::vector<std::unique_ptr<Command>> commands;
 };
 
 void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream* stream = nullptr);
