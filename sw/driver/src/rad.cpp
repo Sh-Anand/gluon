@@ -66,11 +66,14 @@ private:
 };
 
 static CommandStream command_stream;
+static size_t streams = 0;
+static uint8_t curr_hw_stream = 0;
 
 void radKernelLaunch(const char *kernel_name,
                                  radDim3 grid_dim,
                                  radDim3 block_dim,
-                                 radParamBuf* params) {
+                                 radParamBuf* params,
+                                 radStream* stream) {
     
     ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
  
@@ -149,7 +152,7 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
 }
 
-void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
+void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream* stream) {
     fprintf(stderr, "radMemCpy: dst=%p, src=%p, bytes=%zu, dir=%d\n", dst, src, bytes, dir);
     if (dst == nullptr || src == nullptr)
         return;
@@ -190,7 +193,7 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir) {
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }
 
-void radMalloc(void **ptr, size_t bytes) {
+void radMalloc(void **ptr, size_t bytes, radStream* stream) {
     if (ptr == nullptr)
         return;
     auto device_addr = allocateDeviceMemory(bytes);
@@ -204,7 +207,7 @@ void radMalloc(void **ptr, size_t bytes) {
 }
 
 // Massive hack, memcpy to userspace destination is handled here
-void radGetError(radError *err) {
+void radGetError(radError *err, radStream* stream) {
     if (err == nullptr)
         return;
     auto response = rad::ReceiveError();
@@ -250,4 +253,11 @@ void radGetError(radError *err) {
         command_stream.pop_command();
         return;
     }
+}
+
+void radCreateStream(radStream* stream) {
+    stream->id = streams++;
+    stream->hw_sid = curr_hw_stream++;
+    curr_hw_stream %= HW_STREAM_COUNT;
+    stream->command_stream = CommandStream();
 }
