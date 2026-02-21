@@ -9,7 +9,6 @@
 #include <vector>
 
 #include "rad_defs.h"
-#include "command.hpp"
 
 struct radDim3 {
     unsigned int x;

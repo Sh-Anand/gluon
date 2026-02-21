@@ -3,6 +3,7 @@
 
 #include "rad_defs.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 

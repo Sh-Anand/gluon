@@ -1,10 +1,8 @@
 #ifndef COMMAND_HPP
 #define COMMAND_HPP
 
+#include <cstddef>
 #include <cstdint>
-
-#include "rad_defs.h"
-#include "loader.hpp"
 
 enum radCmdType {
     radCmdType_KERNEL,

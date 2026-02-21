@@ -4,7 +4,12 @@
 #include <elfio/elfio.hpp>
 
 #include <cassert>
-#include <optional>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
 #include <unordered_map>
 
 using namespace ELFIO;

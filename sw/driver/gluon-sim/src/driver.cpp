@@ -1,5 +1,6 @@
 #include "driver.h"
 #include "rad.h"
+#include "command.hpp"
 
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -12,11 +13,9 @@
 #include <cstring>
 #include <cstdlib>
 #include <fcntl.h>
-#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <optional>
-#include <sstream>
 #include <string>
 
 #include <toml.hpp>

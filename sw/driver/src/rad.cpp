@@ -7,11 +7,9 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <new>
-#include <optional>
 
 struct radStream {
     uint8_t hw_sid;
