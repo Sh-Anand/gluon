@@ -79,7 +79,6 @@ pub enum GLULState {
 }
 
 pub struct GLUL {
-    id: usize,
     status: GLULStatus,
     cores: Vec<(MuonCore, bool)>, // core, scheduled
     neutrino: Neutrino,
@@ -88,8 +87,6 @@ pub struct GLUL {
     state: GLULState,
     thread_blocks: Option<ThreadBlocks>,
     engine_idx: usize,
-
-    dram: Arc<RwLock<FlatMemory>>,
 
     done: bool,
     err: Result<(), ExecErr>,
@@ -218,7 +215,6 @@ impl GLUL {
             lane_config: LaneConfig::default(),
         };
         GLUL {
-            id: glul_id,
             status: GLULStatus::new(&config),
             cores: (0..config.num_cores)
                 .map(|i| (MuonCore::new(Arc::new(muon_config), glul_id, i, &muon_logger, dram.clone()), false))
@@ -230,7 +226,6 @@ impl GLUL {
             engine_idx: 0,
             done: false,
             err: Ok(()),
-            dram,
         }
     }
 
