@@ -211,26 +211,19 @@ impl Clocked for GLUG {
         self.decode_dispatch
             .qs
             .iter_mut()
-            .map(|eq| {
-                (
-                    eq.q.pop(),
-                    self.engines
+            .for_each(|eq| {
+                if let Some(engine_idx) = self.engines
                         .iter_mut()
                         .enumerate()
                         .find(|(_, engine)| engine.cmd_type() == eq.engine_type && !engine.busy())
-                        .map(|(idx, _)| idx),
-                )
-            })
-            .collect::<Vec<_>>()
-            .iter()
-            .for_each(|x| {
-                if let (Some(engine_cmd), Some(engine_idx)) = x {
-                    self.engines
-                        .get_mut(*engine_idx)
-                        .expect("Engine idx must exist!")
-                        .set_cmd(*engine_cmd);
+                        .map(|(idx, _)| idx) && 
+                   let Some(engine_cmd) = eq.q.pop() {
+                        self.engines
+                            .get_mut(engine_idx)
+                            .expect("Engine idx must exist!")
+                            .set_cmd(engine_cmd);
                 }
-            });
+        });
 
         // Tick stream
         self.sq_idx = (self.sq_idx + 1) % self.stream.sqs.len();
