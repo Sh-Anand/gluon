@@ -66,5 +66,6 @@ impl Stream {
     pub fn clear_in_flight(&mut self, sid: u8) {
         assert!(sid < self.sq.len() as u8, "sid out of bounds");
         self.sq[sid as usize].in_flight = false;
+        self.sq[sid as usize].cmd_id += 1;
     }
 }
