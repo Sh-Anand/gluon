@@ -123,8 +123,6 @@ void radKernelLaunch(const char *kernel_name,
     assert(tls_base_addr_opt);
     uint32_t tls_base_addr = *tls_base_addr_opt;
 
-    uint32_t params_base_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END;
-
     std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
     BufferWriter writer{payload.get(), payload.get() + payload_size};
     if (!writer.write_u32(start_pc) ||
@@ -212,7 +210,7 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }
 
-void radMalloc(void **ptr, size_t bytes, radStream_t stream) {
+void radMalloc(void **ptr, size_t bytes) {
     if (ptr == nullptr)
         return;
 
@@ -235,7 +233,6 @@ void radGetError(radError *err, radStream_t stream) {
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
-        uint8_t response_cmd_id = response->at(0);
         Command* command = streams[stream].commands.front().get();
         if (!command) {
             fprintf(stderr, "radGetError: command not found in stream\n");
@@ -249,7 +246,6 @@ void radGetError(radError *err, radStream_t stream) {
             (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(5))) << 24);
 
         if (command->cmd_type == radCmdType_KERNEL) {
-            KernelCommand* kernel_command = static_cast<KernelCommand*>(command);
             uint32_t translated_pc = 1; // TODO: implement this
             pc = translated_pc;
         }

@@ -83,7 +83,7 @@ void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_di
 
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream = 0);
 
-void radMalloc(void **ptr, size_t bytes, radStream_t stream = 0);
+void radMalloc(void **ptr, size_t bytes);
 
 void radGetError(radError *err, radStream_t stream = 0);
 
