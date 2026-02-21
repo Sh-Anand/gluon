@@ -235,11 +235,10 @@ impl Clocked for GLUG {
         // Tick stream
         self.sq_idx = (self.sq_idx + 1) % self.stream.sq.len();
         let decode_push_candidates = self.stream.sq
-            .iter_mut()
-            .zip(self.stream.sq_in_flight.iter())
+            .iter()
             .enumerate()
-            .filter(|(_, (queue, in_flight))|
-                 !**in_flight && !queue.empty() && self.decode_dispatch.can_enqueue(queue.peek().expect("impossible").cmd_type())
+            .filter(|(_, sq)|
+                 !sq.in_flight && !sq.q.empty() && self.decode_dispatch.can_enqueue(sq.q.peek().expect("impossible").cmd_type())
             )
             .map(|(idx, _)| idx )
             .collect::<Vec<_>>();
