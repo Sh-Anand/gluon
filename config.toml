@@ -28,6 +28,10 @@ shmem = 8192
 [frontend]
 command_queue_size = 4
 
+[stream]
+num_sq = 4
+sq_entries = 4 
+
 [decode_dispatch]
 kq_size = 4
 mq_size = 4
@@ -37,7 +41,7 @@ csq_size = 4
 event_queue_size = 4
 
 [engine]
-num_kernel_engines = 1
+num_kernel_engines = 4
 num_mem_engines = 1
 num_cs_engines = 1
 
