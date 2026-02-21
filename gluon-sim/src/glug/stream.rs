@@ -32,40 +32,53 @@ impl StreamQueue {
 }
 
 pub struct Stream {
-    pub sq: Vec<StreamQueue>,
+    pub sqs: Vec<StreamQueue>,
 }
 
 
 impl Configurable<StreamConfig> for Stream {
     fn new(config: &StreamConfig) -> Self {
-        Stream { sq: (0..config.num_sq).map(|i| StreamQueue::new(config.sq_entries[i])).collect()}
+        Stream { sqs: (0..config.num_sq).map(|i| StreamQueue::new(config.sq_entries[i])).collect()}
     }
 }
 
 impl Stream {
     pub fn can_enqueue(&self, sid: u8) -> bool {
-        assert!(sid < self.sq.len() as u8, "sid out of bounds");
-        !self.sq[sid as usize].q.full()
+        assert!(sid < self.sqs.len() as u8, "sid out of bounds");
+        !self.sqs[sid as usize].q.full()
     }
 
     pub fn enqueue(&mut self, sid: u8, cmd: Command) {
-        assert!(sid < self.sq.len() as u8, "sid out of bounds");
-        self.sq[sid as usize].q.push(cmd);
+        assert!(sid < self.sqs.len() as u8, "sid out of bounds");
+        self.sqs[sid as usize].q.push(cmd);
     }
 
     pub fn try_pop(&mut self, sid: u8) -> Option<Command> {
-        assert!(sid < self.sq.len() as u8, "sid out of bounds");
-        if self.sq[sid as usize].in_flight {
+        assert!(sid < self.sqs.len() as u8, "sid out of bounds");
+        let idx = sid as usize;
+        if self.sqs[idx].in_flight || self.sqs[idx].q.empty() || self.sqs[idx].q.peek().expect("impossible").is_wait() {
             None
         } else {
-            self.sq[sid as usize].in_flight = true;
-            self.sq[sid as usize].q.pop()
+            self.sqs[idx].in_flight = true;
+            self.sqs[idx].q.pop()
         }
     }
 
     pub fn clear_in_flight(&mut self, sid: u8) {
-        assert!(sid < self.sq.len() as u8, "sid out of bounds");
-        self.sq[sid as usize].in_flight = false;
-        self.sq[sid as usize].cmd_id += 1;
+        assert!(sid < self.sqs.len() as u8, "sid out of bounds");
+        let idx = sid as usize;
+        self.sqs[idx].in_flight = false;
+        self.sqs[idx].cmd_id += 1;
+        let cmd_id = self.sqs[idx].cmd_id;
+        self.sqs.iter_mut().enumerate()
+        .filter(|(s_idx, _)| *s_idx != idx)
+        .for_each(|(_, sq)| {
+            if !sq.q.empty() && sq.q.peek().expect("impossible").is_wait() {
+                let (w_sid, w_cmd_id) = sq.q.peek().expect("impossible").get_wait_ids();
+                if w_sid == sid && cmd_id >= w_cmd_id {
+                    sq.q.pop();
+                } 
+            }
+        })
     }
 }

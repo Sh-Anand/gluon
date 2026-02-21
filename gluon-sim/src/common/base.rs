@@ -51,6 +51,14 @@ impl Command {
         }
     }
 
+    pub fn is_wait(&self) -> bool {
+        self.cmd_type() == CmdType::WAIT
+    }
+
+    pub fn get_wait_ids(&self) -> (u8, u64) {
+        (self.bytes[2], u64::from_le_bytes(self.bytes[3..11].try_into().unwrap()))
+    }
+
     pub fn sid(&self) -> u8 {
         self.bytes[0]
     }

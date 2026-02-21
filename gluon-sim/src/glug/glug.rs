@@ -233,8 +233,8 @@ impl Clocked for GLUG {
             });
 
         // Tick stream
-        self.sq_idx = (self.sq_idx + 1) % self.stream.sq.len();
-        let decode_push_candidates = self.stream.sq
+        self.sq_idx = (self.sq_idx + 1) % self.stream.sqs.len();
+        let decode_push_candidates = self.stream.sqs
             .iter()
             .enumerate()
             .filter(|(_, sq)|
