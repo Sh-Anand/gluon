@@ -150,6 +150,7 @@ void radKernelLaunch(const char *kernel_name,
     }
 
     streams[stream].commands.push_back(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
+    hw_stream_cmd_ids[streams[stream].hw_sid]++;
 
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = streams[stream].hw_sid;
@@ -189,7 +190,8 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
     }
 
     streams[stream].commands.push_back(std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir));
-    
+    hw_stream_cmd_ids[streams[stream].hw_sid]++;
+
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = streams[stream].hw_sid;
     header_bytes[1] = radCmdType_MEM;
