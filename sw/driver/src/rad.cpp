@@ -13,8 +13,19 @@
 #include <new>
 #include <optional>
 
-static radStream null_stream = {0, 0, std::vector<std::unique_ptr<Command>>()};
-static size_t streams = 0;
+struct radStream {
+    uint8_t hw_sid;
+    std::vector<std::unique_ptr<Command>> commands;
+    radStream(uint8_t hw_sid) : hw_sid(hw_sid), commands() {}
+};
+
+// massive hack until we move this all to driver
+static std::vector<radStream> streams = [] {
+    std::vector<radStream> v;
+    v.emplace_back(0);
+    return v;
+}();
+static std::vector<uint64_t> hw_stream_cmd_ids = std::vector<uint64_t>(HW_STREAM_COUNT, 0);
 static uint8_t curr_hw_stream = 1;
 
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
@@ -73,7 +84,7 @@ void radKernelLaunch(const char *kernel_name,
                                  radDim3 grid_dim,
                                  radDim3 block_dim,
                                  radParamBuf* params,
-                                 radStream* stream) {
+                                 radStream_t stream) {
     ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
  
     std::size_t params_size = 0;
@@ -83,8 +94,6 @@ void radKernelLaunch(const char *kernel_name,
         if (params_size > 0)
             params_data = params->data();
     }
-    if (stream == nullptr)
-        stream = &null_stream;
 
     size_t payload_size = KERNEL_HEADER_MEM_END + params_size + loader->size;
     auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
@@ -140,10 +149,10 @@ void radKernelLaunch(const char *kernel_name,
         return;
     }
 
-    stream->commands.push_back(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
+    streams[stream].commands.push_back(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
 
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = stream->id;
+    header_bytes[0] = streams[stream].hw_sid;
     header_bytes[1] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
@@ -153,12 +162,10 @@ void radKernelLaunch(const char *kernel_name,
         fprintf(stderr, "radKernelLaunch: failed to submit kernel launch\n");
 }
 
-void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream* stream) {
+void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream) {
     fprintf(stderr, "radMemCpy: dst=%p, src=%p, bytes=%zu, dir=%d\n", dst, src, bytes, dir);
     if (dst == nullptr || src == nullptr)
         return;
-    if (stream == nullptr)
-        stream = &null_stream;
 
     uint32_t src_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(src));
     uint32_t dst_addr_u32 = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dst));
@@ -181,10 +188,10 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream* 
         userspace_dst_addr = dst;
     }
 
-    stream->commands.push_back(std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir));
+    streams[stream].commands.push_back(std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir));
     
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = stream->id;
+    header_bytes[0] = streams[stream].hw_sid;
     header_bytes[1] = radCmdType_MEM;
     header_bytes[2] = radMemCmdType_COPY;
     write_u32_le(header_bytes.data() + 3, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src_addr)));
@@ -196,11 +203,9 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream* 
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
 }
 
-void radMalloc(void **ptr, size_t bytes, radStream* stream) {
+void radMalloc(void **ptr, size_t bytes, radStream_t stream) {
     if (ptr == nullptr)
         return;
-    if (stream == nullptr)
-        stream = &null_stream;
 
     auto device_addr = allocateDeviceMemory(bytes);
     if (!device_addr) {
@@ -213,18 +218,16 @@ void radMalloc(void **ptr, size_t bytes, radStream* stream) {
 }
 
 // Massive hack, memcpy to userspace destination is handled here
-void radGetError(radError *err, radStream* stream) {
+void radGetError(radError *err, radStream_t stream) {
     if (err == nullptr)
         return;
-    if (stream == nullptr)
-        stream = &null_stream;
 
     auto response = rad::ReceiveError();
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
         uint8_t response_cmd_id = response->at(0);
-        Command* command = stream->commands.front().get();
+        Command* command = streams[stream].commands.front().get();
         if (!command) {
             fprintf(stderr, "radGetError: command not found in stream\n");
             return;
@@ -257,14 +260,13 @@ void radGetError(radError *err, radStream* stream) {
 
         err->pc = pc;
 
-        stream->commands.erase(stream->commands.begin());
+        streams[stream].commands.erase(streams[stream].commands.begin());
         return;
     }
 }
 
-void radCreateStream(radStream* stream) {
-    stream->id = streams++;
-    stream->hw_sid = curr_hw_stream++;
+void radCreateStream(radStream_t* stream) {
+    streams.emplace_back(curr_hw_stream++);
+    *stream = streams.size() - 1;
     curr_hw_stream %= HW_STREAM_COUNT;
-    stream->commands.clear();
 }

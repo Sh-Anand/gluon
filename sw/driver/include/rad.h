@@ -72,20 +72,16 @@ struct radParamBuf {
     }
 };
 
-struct radStream {
-    std::size_t id;
-    uint8_t hw_sid;
-    std::vector<std::unique_ptr<Command>> commands;
-};
+typedef uint64_t radStream_t;
 
-void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream* stream = nullptr);
+void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream_t stream = 0);
 
-void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream* stream = nullptr);
+void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream = 0);
 
-void radMalloc(void **ptr, size_t bytes, radStream* stream = nullptr);
+void radMalloc(void **ptr, size_t bytes, radStream_t stream = 0);
 
-void radGetError(radError *err, radStream* stream = nullptr);
+void radGetError(radError *err, radStream_t stream = 0);
 
-void radCreateStream(radStream* stream);
+void radCreateStream(radStream_t* stream);
 
 #endif  // RADIANCE_DRIVER_H
