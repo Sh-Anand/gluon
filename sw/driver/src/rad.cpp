@@ -272,3 +272,8 @@ void radCreateStream(radStream_t* stream) {
     *stream = streams.size() - 1;
     curr_hw_stream %= HW_STREAM_COUNT;
 }
+
+void radEventRecord(radEvent_t* event, radStream_t stream) {
+    event->hw_sid = streams[stream].hw_sid;
+    event->cmd_id = hw_stream_cmd_ids[streams[stream].hw_sid];
+}

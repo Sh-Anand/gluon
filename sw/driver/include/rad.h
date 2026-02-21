@@ -74,6 +74,11 @@ struct radParamBuf {
 
 typedef uint64_t radStream_t;
 
+struct radEvent_t {
+    uint8_t hw_sid;
+    uint64_t cmd_id;
+};
+
 void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream_t stream = 0);
 
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream = 0);
@@ -83,5 +88,7 @@ void radMalloc(void **ptr, size_t bytes, radStream_t stream = 0);
 void radGetError(radError *err, radStream_t stream = 0);
 
 void radCreateStream(radStream_t* stream);
+
+void radEventRecord(radEvent_t* event, radStream_t stream = 0);
 
 #endif  // RADIANCE_DRIVER_H
