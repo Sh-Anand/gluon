@@ -50,6 +50,12 @@ impl Stream {
 
     pub fn enqueue(&mut self, sid: u8, cmd: Command) {
         assert!(sid < self.sqs.len() as u8, "sid out of bounds");
+        if cmd.is_wait() {
+            let (w_sid, w_cmd_id) = cmd.get_wait_ids();
+            if self.sqs[w_sid as usize].cmd_id >= w_cmd_id {
+                return;
+            }
+        }
         self.sqs[sid as usize].q.push(cmd);
     }
 
