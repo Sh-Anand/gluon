@@ -337,8 +337,8 @@ impl Clocked for KernelEngine {
                     if let Some((glul_if_idx, n_tb)) = self
                         .gluls
                         .iter()
-                        .filter(|glul| !*glul.busy.read().expect("GLUL busy poisoned"))
                         .enumerate()
+                        .filter(|(_, glul)| !*glul.busy.read().expect("GLUL busy poisoned"))
                         .map(|(idx, glul)| {
                             let glul_cfg = glul.config;
                             let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
