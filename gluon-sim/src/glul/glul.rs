@@ -97,7 +97,6 @@ impl Clocked for GLUL {
         match self.state {
             GLULState::S0 => {
                 if self.thread_blocks.is_some() {
-                    *self.status.busy.write().expect("GLUL busy poisoned") = true;
                     self.done = false;
                     self.cores.iter_mut().for_each(|(core, _)| core.reset());
                     self.neutrino.reset();

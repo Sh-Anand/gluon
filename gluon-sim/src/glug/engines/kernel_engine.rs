@@ -382,6 +382,7 @@ impl Clocked for KernelEngine {
                             bp: self.cmd.expect("Unreachable: Kernel command not set").gpu_addr,
                         });
                         self.glul_req.idx = glul_if_idx;
+                        *self.gluls[glul_if_idx].busy.write().expect("GLUL busy poisoned") = true;
                     }
                 }
 
