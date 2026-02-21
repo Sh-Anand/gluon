@@ -91,4 +91,6 @@ void radCreateStream(radStream_t* stream);
 
 void radEventRecord(radEvent_t* event, radStream_t stream = 0);
 
+void radWaitEvent(radEvent_t* event, radStream_t stream = 0);
+
 #endif  // RADIANCE_DRIVER_H

@@ -29,10 +29,17 @@ static std::vector<uint64_t> hw_stream_cmd_ids = std::vector<uint64_t>(HW_STREAM
 static uint8_t curr_hw_stream = 1;
 
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
-    dst[0] = static_cast<std::uint8_t>(value & 0xFF);
-    dst[1] = static_cast<std::uint8_t>((value >> 8) & 0xFF);
-    dst[2] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
-    dst[3] = static_cast<std::uint8_t>((value >> 24) & 0xFF);
+    for (int i = 0; i < 4; i++) {
+        dst[i] = static_cast<std::uint8_t>(value & 0xFF);
+        value >>= 8;
+    }
+}
+
+void write_u64_le(std::uint8_t* dst, std::uint64_t value) {
+    for (int i = 0; i < 8; i++) {
+        dst[i] = static_cast<std::uint8_t>(value & 0xFF);
+        value >>= 8;
+    }
 }
 
 struct BufferWriter {
@@ -276,4 +283,15 @@ void radCreateStream(radStream_t* stream) {
 void radEventRecord(radEvent_t* event, radStream_t stream) {
     event->hw_sid = streams[stream].hw_sid;
     event->cmd_id = hw_stream_cmd_ids[streams[stream].hw_sid];
+}
+
+void radWaitEvent(radEvent_t* event, radStream_t stream) {
+    std::array<std::uint8_t, 16> header_bytes{};
+    header_bytes[0] = stream;
+    header_bytes[1] = radCmdType_WAIT;
+    header_bytes[2] = event->hw_sid;
+    write_u64_le(header_bytes.data() + 3, event->cmd_id);
+    auto response = rad::SubmitCommand(header_bytes, nullptr, 0);
+    if (!response)
+        fprintf(stderr, "radWaitEvent: failed to submit wait event\n");
 }

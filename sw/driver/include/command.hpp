@@ -10,7 +10,7 @@ enum radCmdType {
     radCmdType_KERNEL,
     radCmdType_MEM,
     radCmdType_CSR,
-    radCmdType_FENCE,
+    radCmdType_WAIT,
     radCmdType_UNDEFINED,
 };
 
