@@ -1,8 +1,8 @@
 use crate::common::base::{Clocked, Command, Configurable, DMADir, Event, SimErr};
 use crate::glug::completion::Completion;
-use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
+use crate::glug::dispatch::{Dispatch, DispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
-use crate::glug::frontend::{Frontend, FrontendConfig};
+use crate::glug::intake::{Intake, IntakeConfig};
 use crate::glug::stream::{Stream, StreamConfig};
 use crate::glul::glul::{GLULConfig, GLUL};
 use cyclotron::base::mem::HasMemory;
@@ -16,9 +16,8 @@ use std::sync::{Arc, RwLock};
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
 pub struct GLUGConfig {
-    pub frontend: FrontendConfig,
-    #[serde(rename = "decode_dispatch")]
-    pub decode_dispatch: DecodeDispatchConfig,
+    pub intake: IntakeConfig,
+    pub dispatch: DispatchConfig,
     pub stream: StreamConfig,
     pub engine: EngineConfig,
     pub gluls: Vec<GLULConfig>,
@@ -31,8 +30,8 @@ pub struct GLUG {
     cmd: Command,
     sq_idx: usize,
 
-    frontend: Frontend,
-    decode_dispatch: DecodeDispatch,
+    intake: Intake,
+    dispatch: Dispatch,
     stream: Stream,
     engines: Vec<Box<dyn Engine>>,
     completion: Completion,
@@ -91,8 +90,8 @@ impl Configurable<GLUGConfig> for GLUG {
             cmd: Command::default(),
             cmd_valid: false,
             sq_idx: 0,
-            frontend: Frontend::new(&config.frontend),
-            decode_dispatch: DecodeDispatch::new(&config.decode_dispatch),
+            intake: Intake::new(&config.intake),
+            dispatch: Dispatch::new(&config.dispatch),
             stream: Stream::new(&config.stream),
             engines,
             completion: Completion::new(&config.stream),
@@ -208,7 +207,7 @@ impl Clocked for GLUG {
             .try_for_each(|engine| engine.tick())?;
 
         // Tick decode
-        self.decode_dispatch
+        self.dispatch
             .qs
             .iter_mut()
             .for_each(|eq| {
@@ -231,43 +230,43 @@ impl Clocked for GLUG {
             .iter()
             .enumerate()
             .filter(|(_, sq)|
-                 !sq.in_flight && !sq.q.empty() && self.decode_dispatch.can_enqueue(sq.q.peek().expect("impossible").cmd_type())
+                 !sq.in_flight && !sq.q.empty() && self.dispatch.can_enqueue(sq.q.peek().expect("impossible").cmd_type())
             )
             .map(|(idx, _)| idx )
             .collect::<Vec<_>>();
 
         if !decode_push_candidates.is_empty() {
             let x = &decode_push_candidates[self.sq_idx % decode_push_candidates.len()];
-            self.decode_dispatch.enqueue(self.stream.try_pop(*x as u8).expect("impossible"));
+            self.dispatch.enqueue(self.stream.try_pop(*x as u8).expect("impossible"));
         }
 
-        // Tick frontend
-        if self.cmd_valid && self.frontend.command_queue.push(self.cmd) {
+        // Tick intake
+        if self.cmd_valid && self.intake.command_queue.push(self.cmd) {
             info!(self.logger, "Pushed {:?} to command queue", self.cmd);
             self.cmd_valid = false;
             self.cmd = Command::default();
         }
 
-        if let Some(frontend_out_cmd) = self
-            .frontend
+        if let Some(intake_out_cmd) = self
+            .intake
             .command_queue
             .peek()
             .map(|cmd| self.stream.can_enqueue(cmd.sid())) 
             .unwrap_or(false)
             .then(|| {
-                self.frontend
+                self.intake
                     .command_queue
                     .pop()
                     .expect("Cannot be empty here")
             })
         {
-            self.stream.enqueue(frontend_out_cmd.sid(), frontend_out_cmd);
+            self.stream.enqueue(intake_out_cmd.sid(), intake_out_cmd);
         }
 
         Ok(())
     }
 
     fn busy(&mut self) -> bool {
-        self.frontend.command_queue.full()
+        self.intake.command_queue.full()
     }
 }

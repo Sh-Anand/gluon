@@ -1,7 +1,7 @@
 pub mod completion;
-pub mod decode_dispatch;
+pub mod dispatch;
 pub mod engine;
 pub mod engines;
-pub mod frontend;
+pub mod intake;
 pub mod glug;
 pub mod stream;

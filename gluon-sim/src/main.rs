@@ -15,12 +15,12 @@ use tokio::net::unix::OwnedReadHalf;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{unix::SocketAddr, UnixListener};
 use tokio::sync::Mutex;
-use gluon::glug::decode_dispatch::DecodeDispatchConfig;
+use gluon::glug::dispatch::DispatchConfig;
 use gluon::glug::engine::EngineConfig;
 use gluon::glug::engines::cs_engine::CSEngineConfig;
 use gluon::glug::engines::kernel_engine::KernelEngineConfig;
 use gluon::glug::engines::mem_engine::MemEngineConfig;
-use gluon::glug::frontend::FrontendConfig;
+use gluon::glug::intake::IntakeConfig;
 use gluon::glug::glug::GLUGConfig;
 use gluon::top::{SimConfig, Top, TopConfig};
 
@@ -37,9 +37,9 @@ struct Config {
     #[serde(default)]
     glug: GLUGConfig,
     #[serde(default)]
-    frontend: FrontendConfig,
-    #[serde(default, rename = "decode_dispatch")]
-    decode_dispatch: DecodeDispatchConfig,
+    intake: IntakeConfig,
+    #[serde(default)]
+    dispatch: DispatchConfig,
     #[serde(default)]
     engine: EngineConfig,
     #[serde(default, rename = "kernel_engine")]
@@ -63,8 +63,8 @@ impl Config {
         engine_config.mem_engine_config = self.mem_engine;
         engine_config.cs_engine_config = self.cs_engine;
 
-        glug_config.frontend = self.frontend;
-        glug_config.decode_dispatch = self.decode_dispatch;
+        glug_config.intake = self.intake;
+        glug_config.dispatch = self.dispatch;
         glug_config.engine = engine_config;
 
         (

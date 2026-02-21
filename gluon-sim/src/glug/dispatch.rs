@@ -9,13 +9,13 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
-pub struct DecodeDispatchConfig {
+pub struct DispatchConfig {
     pub kq_size: usize,
     pub mq_size: usize,
     pub csq_size: usize,
 }
 
-impl Default for DecodeDispatchConfig {
+impl Default for DispatchConfig {
     fn default() -> Self {
         Self {
             kq_size: 4,
@@ -31,13 +31,13 @@ pub struct EngineQueue {
     pub engine_type: CmdType,
 }
 
-pub struct DecodeDispatch {
+pub struct Dispatch {
     pub qs: [EngineQueue; 3],
 }
 
-impl Configurable<DecodeDispatchConfig> for DecodeDispatch {
-    fn new(config: &DecodeDispatchConfig) -> Self {
-        DecodeDispatch {
+impl Configurable<DispatchConfig> for Dispatch {
+    fn new(config: &DispatchConfig) -> Self {
+        Dispatch {
             qs: [
                 EngineQueue {
                     q: Queue::new(config.kq_size),
@@ -56,7 +56,7 @@ impl Configurable<DecodeDispatchConfig> for DecodeDispatch {
     }
 }
 
-impl DecodeDispatch {
+impl Dispatch {
     pub fn can_enqueue(&self, cmd_type: CmdType) -> bool {
         self.qs
             .iter()
