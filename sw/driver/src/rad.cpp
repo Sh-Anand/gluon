@@ -281,7 +281,7 @@ void radEventRecord(radEvent_t* event, radStream_t stream) {
 
 void radWaitEvent(radEvent_t* event, radStream_t stream) {
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = stream;
+    header_bytes[0] = streams[stream].hw_sid;
     header_bytes[1] = radCmdType_WAIT;
     header_bytes[2] = event->hw_sid;
     write_u64_le(header_bytes.data() + 3, event->cmd_id);
