@@ -2,18 +2,18 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io;
-use std::io::ErrorKind;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Arc;
+use std::collections::VecDeque;
 
 use gluon::common::base::Configurable;
 use gluon::common::base::{Clocked, Command};
 use serde::Deserialize;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::net::unix::OwnedReadHalf;
 use tokio::net::unix::OwnedWriteHalf;
-use tokio::net::{unix::SocketAddr, UnixListener, UnixStream};
+use tokio::net::{unix::SocketAddr, UnixListener};
 use tokio::sync::Mutex;
 use gluon::glug::decode_dispatch::DecodeDispatchConfig;
 use gluon::glug::engine::EngineConfig;
@@ -83,100 +83,89 @@ fn load_config(path: &str) -> Result<Config, Box<dyn Error>> {
     Ok(config)
 }
 
-async fn receive_shared_memory_region(stream: &UnixStream) -> io::Result<SharedMemoryRegion> {
-    loop {
-        stream.readable().await?;
-        match recv_memfd(stream.as_raw_fd()) {
-            Ok((fd, base)) => return SharedMemoryRegion::from_owned_fd(fd, base),
-            Err(err) if err.kind() == ErrorKind::WouldBlock => continue,
-            Err(err) => return Err(err),
-        }
-    }
-}
-
-fn recv_memfd(socket_fd: RawFd) -> io::Result<(OwnedFd, usize)> {
+fn recv_command(socket_fd: RawFd) -> io::Result<([u8; 16], Option<(OwnedFd, usize)>)> {
     const CMSG_BUFFER_LEN: usize =
         unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize };
 
-    let mut data_buf = [0u8; std::mem::size_of::<u64>()];
+    let mut data_buf = [0u8; 16];
     let mut cmsg_buffer = [0u8; CMSG_BUFFER_LEN];
+    let mut iov = libc::iovec {
+        iov_base: data_buf.as_mut_ptr().cast(),
+        iov_len: data_buf.len(),
+    };
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
+    msg.msg_controllen = cmsg_buffer.len();
 
-    loop {
-        let mut iov = libc::iovec {
-            iov_base: data_buf.as_mut_ptr().cast(),
-            iov_len: data_buf.len(),
-        };
-
-        let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-        msg.msg_iov = &mut iov;
-        msg.msg_iovlen = 1;
-        msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
-        msg.msg_controllen = cmsg_buffer.len();
-
-        let received = unsafe { libc::recvmsg(socket_fd, &mut msg, 0) };
-        if received < 0 {
-            let err = io::Error::last_os_error();
-            if err.kind() == ErrorKind::WouldBlock || err.kind() == ErrorKind::Interrupted {
-                continue;
-            }
-            return Err(err);
-        }
-
-        if received == 0 {
-            return Err(io::Error::new(
-                ErrorKind::UnexpectedEof,
-                "client closed connection before sending shared memory fd",
-            ));
-        }
-
-        if received as usize != data_buf.len() {
-            return Err(io::Error::new(
-                ErrorKind::InvalidData,
-                "shared memory base missing",
-            ));
-        }
-
-        let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
-        while !cmsg.is_null() {
-            let hdr = unsafe { &*cmsg };
-            if hdr.cmsg_level == libc::SOL_SOCKET && hdr.cmsg_type == libc::SCM_RIGHTS {
-                let data = unsafe { libc::CMSG_DATA(cmsg) as *const RawFd };
-                if !data.is_null() {
-                    let fd = unsafe { *data };
-                    let mut base_bytes = [0u8; std::mem::size_of::<u64>()];
-                    base_bytes.copy_from_slice(&data_buf);
-                    let base = u64::from_le_bytes(base_bytes) as usize;
-                    return Ok((unsafe { OwnedFd::from_raw_fd(fd) }, base));
-                }
-            }
-
-            cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
-        }
-
-        return Err(io::Error::new(
-            ErrorKind::InvalidData,
-            "did not receive a file descriptor in ancillary data",
-        ));
+    let received = unsafe { libc::recvmsg(socket_fd, &mut msg, libc::MSG_WAITALL) };
+    if received < 0 {
+        return Err(io::Error::last_os_error());
     }
+    if received == 0 {
+        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "socket closed"));
+    }
+
+    let mut fd_base = None;
+    let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
+    while !cmsg.is_null() {
+        let hdr = unsafe { &*cmsg };
+        if hdr.cmsg_level == libc::SOL_SOCKET && hdr.cmsg_type == libc::SCM_RIGHTS {
+            let data = unsafe { libc::CMSG_DATA(cmsg) as *const RawFd };
+            if !data.is_null() {
+                let fd = unsafe { *data };
+                let base_u32 = match data_buf[1] {
+                    0 => u32::from_le_bytes([data_buf[2], data_buf[3], data_buf[4], data_buf[5]]),
+                    1 => {
+                        if data_buf[15] == 0 {
+                            u32::from_le_bytes([data_buf[3], data_buf[4], data_buf[5], data_buf[6]])
+                        } else {
+                            u32::from_le_bytes([data_buf[7], data_buf[8], data_buf[9], data_buf[10]])
+                        }
+                    }
+                    _ => 0,
+                };
+                fd_base = Some((unsafe { OwnedFd::from_raw_fd(fd) }, base_u32 as usize));
+            }
+        }
+        cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
+    }
+
+    Ok((data_buf, fd_base))
 }
 
-async fn enqueue_command(mut stream: OwnedReadHalf, addr: SocketAddr, top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
-    let mut buffer = [0_u8; 16];
+async fn enqueue_command(
+    stream: OwnedReadHalf,
+    addr: SocketAddr,
+    top: Arc<Mutex<Top>>,
+    active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
+) -> tokio::io::Result<()> {
     loop {
-        match stream.read_exact(&mut buffer).await {
-            Ok(_) => {
-                let command = Command::from_bytes(buffer);
-                {
-                    let mut top_guard = top.lock().await;
-                    top_guard.submit_command(command);
-                    top_guard.tick().unwrap();
-                }
+        stream.readable().await?;
+        let (buffer, fd_base) = match recv_command(stream.as_ref().as_raw_fd()) {
+            Ok(v) => v,
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock || err.kind() == io::ErrorKind::Interrupted => {
+                continue;
             }
-            Err(err) if err.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(_) => {
                 println!("Client closed connection: {addr:?}");
                 return Ok(());
             }
-            Err(err) => return Err(err),
+        };
+        if let Some((fd, base)) = fd_base {
+            let region = SharedMemoryRegion::from_owned_fd(fd, base)?;
+            let sid = buffer[0] as usize;
+            let mut guard = active_regions.lock().await;
+            if sid < guard.len() {
+                guard[sid].push_back(region);
+            }
+        }
+        let command = Command::from_bytes(buffer);
+        {
+            let mut top_guard = top.lock().await;
+            top_guard.submit_command(command);
+            top_guard.tick().unwrap();
         }
         tokio::task::yield_now().await;
     }
@@ -189,13 +178,22 @@ async fn tick_sim(top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
     }
 }
 
-async fn dequeue_completion(mut stream: OwnedWriteHalf, top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
+async fn dequeue_completion(
+    mut stream: OwnedWriteHalf,
+    top: Arc<Mutex<Top>>,
+    active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
+) -> tokio::io::Result<()> {
     loop {
         if let Some(event) = {
             let mut top_guard = top.lock().await;
             top_guard.get_completion()
         } {
             stream.write_all(event.bytes.as_slice()).await?;
+            let sid = event.sid() as usize;
+            let mut guard = active_regions.lock().await;
+            if sid < guard.len() {
+                let _ = guard[sid].pop_front();
+            }
             println!("Sent completion: {:?}", event);
         }
         tokio::task::yield_now().await;
@@ -212,6 +210,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let socket_path = server_config.socket_path;
 
     let top = Arc::new(Mutex::new(Top::new(&top_config)));
+    let active_regions = Arc::new(Mutex::new((0..256).map(|_| VecDeque::new()).collect::<Vec<_>>()));
 
     if Path::new(&socket_path).exists() {
         fs::remove_file(&socket_path)?;
@@ -233,16 +232,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok((stream, addr)) => {
             println!("Client connected: {addr:?}");
 
-            let shared_memory = receive_shared_memory_region(&stream).await?;
-            println!("Shared memory region: {:?}", shared_memory);
-
             let (read_half, write_half) = stream.into_split();
 
             env_logger::init();
 
-            let h1 = tokio::task::spawn(enqueue_command(read_half, addr, Arc::clone(&top)));
+            let h1 = tokio::task::spawn(enqueue_command(
+                read_half,
+                addr,
+                Arc::clone(&top),
+                Arc::clone(&active_regions),
+            ));
             let h2 = tokio::task::spawn(tick_sim(Arc::clone(&top)));
-            let h3 = tokio::task::spawn(dequeue_completion(write_half, Arc::clone(&top)));
+            let h3 = tokio::task::spawn(dequeue_completion(
+                write_half,
+                Arc::clone(&top),
+                Arc::clone(&active_regions),
+            ));
             let _ = tokio::join!(h1, h2, h3);
         }
         Err(err) => {

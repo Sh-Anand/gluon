@@ -16,6 +16,8 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
 std::optional<std::string> ReceiveError();
 
 void* GetSharedMemoryBase();
+void* GetLastSharedMemoryBase();
+void ReleaseSharedMemoryBase(void* addr);
 
 }
 

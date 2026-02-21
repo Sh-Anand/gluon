@@ -192,7 +192,9 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
         userspace_dst_addr = dst;
     }
 
-    streams[stream].commands.push_back(std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir));
+    auto copy_cmd = std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, size_u32, userspace_dst_addr, dir);
+    CopyCommand* copy_cmd_raw = copy_cmd.get();
+    streams[stream].commands.push_back(std::move(copy_cmd));
     hw_stream_cmd_ids[streams[stream].hw_sid]++;
 
     std::array<std::uint8_t, 16> header_bytes{};
@@ -206,6 +208,8 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
     auto response = rad::SubmitCommand(header_bytes, payload_addr, payload_size);
     if (!response)
         fprintf(stderr, "radMemCpy: failed to submit mem copy\n");
+    if (dir == radMemCpyDir_D2H)
+        copy_cmd_raw->shared_addr = rad::GetLastSharedMemoryBase();
 }
 
 void radMalloc(void **ptr, size_t bytes) {
@@ -231,6 +235,7 @@ void radGetError(radError *err, radStream_t stream) {
     if (!response)
         fprintf(stderr, "radGetError: failed to receive error\n");
     if (response) {
+        stream = static_cast<radStream_t>(static_cast<std::uint8_t>(response->at(0)));
         Command* command = streams[stream].commands.front().get();
         if (!command) {
             fprintf(stderr, "radGetError: command not found in stream\n");
@@ -251,13 +256,14 @@ void radGetError(radError *err, radStream_t stream) {
         if (command->cmd_type == radCmdType_MEM) {
             CopyCommand* copy_command = static_cast<CopyCommand*>(command);
             if (copy_command->d2h) {
-                void *shared_mem_base = rad::GetSharedMemoryBase();
+                void *shared_mem_base = copy_command->shared_addr;
                 if (!shared_mem_base) {
                     fprintf(stderr, "radGetError: shared memory not initialized\n");
                     return;
                 }
                 void *src_addr = reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(shared_mem_base));
                 memcpy(copy_command->userspace_dst_addr, src_addr, copy_command->size);
+                rad::ReleaseSharedMemoryBase(shared_mem_base);
             }
         }
 

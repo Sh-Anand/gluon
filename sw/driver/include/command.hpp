@@ -34,12 +34,13 @@ public:
 class CopyCommand : public Command {
 public:
     CopyCommand(uint32_t src_addr, uint32_t dst_addr, uint32_t size, void *userspace_dst_addr, bool d2h) :
-        Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), userspace_dst_addr(userspace_dst_addr), d2h(d2h) {}
+        Command(radCmdType_MEM), src_addr(src_addr), dst_addr(dst_addr), size(size), userspace_dst_addr(userspace_dst_addr), d2h(d2h), shared_addr(nullptr) {}
     uint32_t src_addr;
     uint32_t dst_addr;
     uint32_t size;
     void *userspace_dst_addr;
     bool d2h;
+    void *shared_addr;
 };
 
 #endif // COMMAND_HPP
