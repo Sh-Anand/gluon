@@ -1,4 +1,4 @@
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMADir, Event, SimErr};
+use crate::common::base::{Clocked, Command, Configurable, DMADir, Event, SimErr};
 use crate::glug::completion::Completion;
 use crate::glug::decode_dispatch::{DecodeDispatch, DecodeDispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
@@ -259,10 +259,7 @@ impl Clocked for GLUG {
             .frontend
             .command_queue
             .peek()
-            .map(|cmd| match cmd.cmd_type() {
-                CmdType::FENCE => self.completion.eq.iter().all(|event| event.is_none()),
-                _ => self.stream.can_enqueue(cmd.sid()),
-            })
+            .map(|cmd| self.stream.can_enqueue(cmd.sid())) 
             .unwrap_or(false)
             .then(|| {
                 self.frontend

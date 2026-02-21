@@ -7,7 +7,7 @@ pub enum CmdType {
     KERNEL,
     MEM,
     CSR,
-    FENCE,
+    WAIT,
     UNDEFINED,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,20 +46,13 @@ impl Command {
             0 => CmdType::KERNEL,
             1 => CmdType::MEM,
             2 => CmdType::CSR,
-            3 => CmdType::FENCE,
+            3 => CmdType::WAIT,
             _ => CmdType::UNDEFINED,
         }
     }
 
     pub fn sid(&self) -> u8 {
         self.bytes[0]
-    }
-
-    pub fn is_fence(&self) -> bool {
-        match self.cmd_type() {
-            CmdType::FENCE => true,
-            _ => false,
-        }
     }
 
     pub fn slice(&self, i: usize, j: usize) -> &[u8] {
