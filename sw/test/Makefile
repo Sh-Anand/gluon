@@ -62,9 +62,9 @@ $(KERNEL_DISASM): $(KERNEL_ELF)
 copy_kernel: $(KERNEL_ELF)
 	cp $(KERNEL_ELF) $(BUILD_ROOT)/kernel.elf
 
-$(HOST_BIN): $(HOST_SRCS) $(KERNEL_DISASM) copy_kernel ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp | $(BUILD_DIR)
+$(HOST_BIN): $(HOST_SRCS) $(KERNEL_DISASM) copy_kernel ../driver/src/rad.cpp | $(BUILD_DIR)
 	$(HOST_CLANG) -std=c++17 -Wall -Wextra $(HOST_INCLUDES) \
-		$(HOST_SRCS) ../driver/src/rad.cpp ../driver/gluon-sim/src/driver.cpp -o $@
+		$(HOST_SRCS) ../driver/src/rad.cpp -o $@
 
 $(LIBMUON_A):
 	$(MAKE) -C $(LIBMUON_DIR)

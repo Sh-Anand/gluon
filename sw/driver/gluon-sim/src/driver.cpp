@@ -1,6 +1,8 @@
 #include "driver.h"
 #include "rad.h"
 #include "command.hpp"
+#include "core.hpp"
+#include "rad_rpc.hpp"
 
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -350,3 +352,121 @@ void ReleaseSharedMemoryBase(void* addr) {
 }
 
 }  // namespace rad
+
+constexpr const char* kDriverSocketPath = "./rad-driver.sock";
+
+int main() {
+    ::unlink(kDriverSocketPath);
+
+    int srv = ::socket(AF_UNIX, SOCK_STREAM, 0);
+    if (srv == -1)
+        return 1;
+
+    sockaddr_un addr{};
+    addr.sun_family = AF_UNIX;
+    std::strncpy(addr.sun_path, kDriverSocketPath, sizeof(addr.sun_path) - 1);
+
+    if (::bind(srv, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == -1)
+        return 1;
+
+    if (::listen(srv, 1) == -1)
+        return 1;
+
+    int cli = ::accept(srv, nullptr, nullptr);
+    if (cli == -1)
+        return 1;
+
+    for (;;) {
+        radrpc::MsgHeader h{};
+        if (!radrpc::ReadFull(cli, &h, sizeof(h)))
+            break;
+
+        std::vector<uint8_t> req(h.size);
+        if (h.size > 0 && !radrpc::ReadFull(cli, req.data(), h.size))
+            break;
+
+        if (h.op == radrpc::OP_CREATE_STREAM) {
+            radrpc::CreateStreamResp resp{core::CreateStream()};
+            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+                break;
+        } else if (h.op == radrpc::OP_MALLOC) {
+            auto* m = reinterpret_cast<const radrpc::MallocReq*>(req.data());
+            radrpc::MallocResp resp{core::Malloc(m->bytes)};
+            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+                break;
+        } else if (h.op == radrpc::OP_KERNEL_LAUNCH) {
+            auto* k = reinterpret_cast<const radrpc::KernelLaunchReq*>(req.data());
+            const char* kernel_name = reinterpret_cast<const char*>(req.data() + sizeof(*k));
+            const uint8_t* params = req.data() + sizeof(*k) + k->name_len;
+            std::string kernel_name_str(kernel_name, kernel_name + k->name_len);
+            core::KernelLaunch(core::KernelLaunchReq{
+                .stream = k->stream,
+                .grid_dim = {k->grid_x, k->grid_y, k->grid_z},
+                .block_dim = {k->block_x, k->block_y, k->block_z},
+                .kernel_name = kernel_name_str.c_str(),
+                .params_data = params,
+                .params_size = k->params_len,
+            });
+            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+                break;
+        } else if (h.op == radrpc::OP_MEMCPY) {
+            auto* m = reinterpret_cast<const radrpc::MemcpyReq*>(req.data());
+            const uint8_t* h2d_data = nullptr;
+            if (m->dir == radMemCpyDir_H2D)
+                h2d_data = req.data() + sizeof(*m);
+            core::MemCpy(core::MemCpyReq{
+                .stream = m->stream,
+                .dst_addr = m->dst,
+                .src_addr = m->src,
+                .bytes = m->bytes,
+                .dir = static_cast<radMemCpyDir>(m->dir),
+                .h2d_data = h2d_data,
+            });
+            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+                break;
+        } else if (h.op == radrpc::OP_EVENT_RECORD) {
+            auto* s = reinterpret_cast<const radrpc::StreamReq*>(req.data());
+            radEvent_t ev = core::EventRecord(s->stream);
+            radrpc::EventResp resp{};
+            resp.hw_sid = ev.hw_sid;
+            resp.cmd_id = ev.cmd_id;
+            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+                break;
+        } else if (h.op == radrpc::OP_WAIT_EVENT) {
+            auto* w = reinterpret_cast<const radrpc::WaitEventReq*>(req.data());
+            core::WaitEvent(core::WaitEventReq{
+                .stream = w->stream,
+                .hw_sid = w->hw_sid,
+                .cmd_id = w->cmd_id,
+            });
+            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+                break;
+        } else if (h.op == radrpc::OP_GET_ERROR) {
+            core::CompletionResult out{};
+            if (!core::GetError(&out)) {
+                if (!radrpc::SendResp(cli, -1, nullptr, 0))
+                    break;
+                continue;
+            }
+            radrpc::GetErrorResp resp{};
+            resp.stream = out.stream;
+            resp.err_code = static_cast<uint32_t>(out.err_code);
+            resp.pc = out.pc;
+            resp.d2h_bytes = static_cast<uint32_t>(out.d2h_bytes.size());
+            std::vector<uint8_t> payload(sizeof(resp) + out.d2h_bytes.size());
+            std::memcpy(payload.data(), &resp, sizeof(resp));
+            if (!out.d2h_bytes.empty())
+                std::memcpy(payload.data() + sizeof(resp), out.d2h_bytes.data(), out.d2h_bytes.size());
+            if (!radrpc::SendResp(cli, 0, payload.data(), static_cast<uint32_t>(payload.size())))
+                break;
+        } else {
+            if (!radrpc::SendResp(cli, -1, nullptr, 0))
+                break;
+        }
+    }
+
+    ::close(cli);
+    ::close(srv);
+    ::unlink(kDriverSocketPath);
+    return 0;
+}
