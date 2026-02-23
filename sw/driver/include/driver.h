@@ -1,15 +1,15 @@
 #ifndef DRIVER_H
 #define DRIVER_H
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace rad {
 
-std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& header,
+std::optional<std::string> SubmitCommand(const std::vector<std::uint8_t>& header,
                                          const void* payload,
                                          std::size_t payload_size);
 

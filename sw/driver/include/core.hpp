@@ -4,10 +4,15 @@
 #include "rad.h"
 #include "rad_rpc.hpp"
 
-#include <cstddef>
 #include <cstdint>
 
 typedef uint8_t radStream;
+
+#define CMD_HEADER_SIZE 16
+#define CMD_STREAM_ID_OFFSET 0
+#define CMD_CMD_TYPE_OFFSET 1
+#define CMD_MEM_CMD_TYPE_OFFSET 2
+#define CMD_MEMCPY_DIR_OFFSET 15
 
 struct HWStream {
     uint64_t head_cmd_id;
@@ -16,7 +21,7 @@ struct HWStream {
 
 void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data);
 
-void MemCpy(MemCpyReq* req, const void* h2d_data);
+void MemCpy(MemCpyReq* req, void* h2d_data);
 
 uint32_t GPUMalloc(uint32_t bytes);
 

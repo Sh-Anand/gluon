@@ -5,9 +5,7 @@
 #include "loader.hpp"
 #include "mem.hpp"
 
-#include <array>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <memory>
@@ -133,43 +131,38 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
 
     hw_streams[streams[req->stream]].tail_cmd_id++;
 
-    std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = streams[req->stream];
-    header_bytes[1] = radCmdType_KERNEL;
+    std::vector<uint8_t> header_bytes(CMD_HEADER_SIZE, 0);
+    header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
+    header_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
     write_u32_le(header_bytes.data() + 10, kernel_payload_addr);
     (void)rad::SubmitCommand(header_bytes, payload.get(), payload_size);
 }
 
-void MemCpy(MemCpyReq* req, const void* h2d_data) {
+// TODO: memcpy way way too hacky
+void MemCpy(MemCpyReq* req, void* h2d_data) {
     std::lock_guard<std::mutex> lock(core_mu);
-    void *src_addr = nullptr;
-    void *dst_addr = nullptr;
-    const void *payload_addr = nullptr;
-    size_t payload_size = 0;
+    uint32_t src_addr = (uint32_t)(uintptr_t)(req->src_addr);
+    uint32_t dst_addr = (uint32_t)(uintptr_t)(req->dst_addr);
+    void* aux_ptr = (void*)(uintptr_t)(req->dst_addr);
+    size_t aux_size = 0;
     if (req->dir == radMemCpyDir_H2D) {
-        dst_addr = (void*)(req->dst_addr);
-        payload_addr = h2d_data;
-        payload_size = req->bytes;
-    } else {
-        src_addr = (void*)(req->src_addr);
+        aux_ptr = h2d_data;
+        aux_size = req->bytes;
     }
-
-    uint32_t src_addr_u32 = (uint32_t)(uintptr_t)(src_addr);
-    uint32_t dst_addr_u32 = (uint32_t)(uintptr_t)(dst_addr);
     hw_streams[streams[req->stream]].tail_cmd_id++;
 
     // hack to keep interface reusable
-    std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = streams[req->stream];
-    header_bytes[1] = radCmdType_MEM;
-    header_bytes[2] = radMemCmdType_COPY;
-    write_u32_le(header_bytes.data() + 3, src_addr_u32);
-    write_u32_le(header_bytes.data() + 7, dst_addr_u32);
-    write_u32_le(header_bytes.data() + 11, req->bytes);
-    header_bytes[15] = req->dir;
-    (void)rad::SubmitCommand(header_bytes, payload_addr, payload_size);
+    std::vector<uint8_t> header_bytes(CMD_HEADER_SIZE, 0);
+    header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
+    header_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_MEM;
+    header_bytes[CMD_MEM_CMD_TYPE_OFFSET] = radMemCmdType_COPY;
+    write_u32_le(header_bytes.data() + 3, src_addr); // 4 bytes
+    write_u32_le(header_bytes.data() + 3 + sizeof(uint32_t), dst_addr); // 4 bytes
+    write_u32_le(header_bytes.data() + 3 + sizeof(uint32_t) + sizeof(uint32_t), req->bytes); // 4 bytes
+    header_bytes[3 + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t)] = req->dir; // 1 byte
+    (void)rad::SubmitCommand(header_bytes, aux_ptr, aux_size);
 }
 
 uint32_t GPUMalloc(uint32_t bytes) {
@@ -193,7 +186,7 @@ uint64_t EventRecord(radStream_t stream) {
 
 void WaitEvent(WaitEventReq* req) {
     std::lock_guard<std::mutex> lock(core_mu);
-    std::array<std::uint8_t, 16> header_bytes{};
+    std::vector<uint8_t> header_bytes(CMD_HEADER_SIZE, 0);
     header_bytes[0] = streams[req->stream];
     header_bytes[1] = radCmdType_WAIT;
     header_bytes[2] = streams[req->event.stream];

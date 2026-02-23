@@ -13,10 +13,8 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstring>
-#include <cstdlib>
 #include <fcntl.h>
 #include <iostream>
-#include <limits>
 #include <optional>
 #include <string>
 #include <mutex>
@@ -108,7 +106,7 @@ std::optional<std::string> LoadSocketPath() {
     return socket_path;
 }
 
-bool SendCommand(int sock, const std::array<std::uint8_t, 16>& data, int fd) {
+bool SendCommand(int sock, const std::array<std::uint8_t, CMD_HEADER_SIZE>& data, int fd) {
     struct ::msghdr msg = {};
     struct ::iovec iov;
     iov.iov_base = const_cast<std::uint8_t*>(data.data());
@@ -214,7 +212,7 @@ static bool CreateRegion(SharedMemoryRegion& region, std::size_t size) {
     return true;
 }
 
-std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& header,
+std::optional<std::string> SubmitCommand(const std::vector<std::uint8_t>& header,
                                          const void* payload,
                                          std::size_t payload_size) {
     bool initialized = false;
@@ -230,7 +228,8 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
     state.last_shared_addr = nullptr;
     int sock = state.sock;
     lock.unlock();
-    std::array<std::uint8_t, 16> header_bytes = header;
+    std::array<std::uint8_t, CMD_HEADER_SIZE> header_bytes;
+    std::memcpy(header_bytes.data(), header.data(), CMD_HEADER_SIZE); //extreme hack
     SharedMemoryRegion region;
     bool use_region = false;
     bool retain_region = false;
@@ -254,8 +253,9 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
         std::uintptr_t shared_base = reinterpret_cast<std::uintptr_t>(region.addr);
         std::uint32_t shared_base_u32 = static_cast<std::uint32_t>(shared_base);
         if (header_bytes[1] == radCmdType_MEM) {
-            if (header_bytes[15] == radMemCpyDir_H2D) {
+            if (header_bytes[CMD_MEMCPY_DIR_OFFSET] == radMemCpyDir_H2D) {
                 std::memcpy(header_bytes.data() + 3, &shared_base_u32, sizeof(shared_base_u32));
+
             } else {
                 std::memcpy(header_bytes.data() + 7, &shared_base_u32, sizeof(shared_base_u32));
             }
@@ -385,7 +385,7 @@ int main() {
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
         } else if (h.op == OP_MEMCPY) {
-            const void* h2d_data = req.data() + sizeof(MemCpyReq);
+            void* h2d_data = (void*)(uintptr_t)(req.data() + sizeof(MemCpyReq));
             MemCpy((MemCpyReq*)req.data(), h2d_data);
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
