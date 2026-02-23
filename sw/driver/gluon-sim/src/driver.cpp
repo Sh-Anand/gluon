@@ -354,82 +354,55 @@ int main() {
 
     std::thread([] {
         for (;;) {
-            if (!core::GetError())
+            if (!GetError())
                 ::usleep(1000);
         }
     }).detach();
 
     for (;;) {
-        radrpc::MsgHeader h{};
-        if (!radrpc::ReadFull(cli, &h, sizeof(h)))
+        MsgHeader h{};
+        if (!ReadFull(cli, &h, sizeof(h)))
             break;
 
         std::vector<uint8_t> req(h.size);
-        if (h.size > 0 && !radrpc::ReadFull(cli, req.data(), h.size))
+        if (h.size > 0 && !ReadFull(cli, req.data(), h.size))
             break;
 
-        if (h.op == radrpc::OP_CREATE_STREAM) {
-            radrpc::CreateStreamResp resp{core::CreateStream()};
-            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+        if (h.op == OP_CREATE_STREAM) {
+            uint64_t resp = CreateStream();
+            if (!SendResp(cli, 0, &resp, sizeof(resp)))
                 break;
-        } else if (h.op == radrpc::OP_MALLOC) {
-            auto* m = reinterpret_cast<const radrpc::MallocReq*>(req.data());
-            radrpc::MallocResp resp{core::Malloc(m->bytes)};
-            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+        } else if (h.op == OP_MALLOC) {
+            uint32_t resp = GPUMalloc(*(uint32_t*)req.data());
+            if (!SendResp(cli, 0, &resp, sizeof(resp)))
                 break;
-        } else if (h.op == radrpc::OP_KERNEL_LAUNCH) {
-            auto* k = reinterpret_cast<const radrpc::KernelLaunchReq*>(req.data());
+        } else if (h.op == OP_KERNEL_LAUNCH) {
+            KernelLaunchReq* k = (KernelLaunchReq*)req.data();
             const char* kernel_name = reinterpret_cast<const char*>(req.data() + sizeof(*k));
-            const uint8_t* params = req.data() + sizeof(*k) + k->name_len;
+            const uint8_t* params_data = req.data() + sizeof(*k) + k->name_len;
             std::string kernel_name_str(kernel_name, kernel_name + k->name_len);
-            core::KernelLaunch(core::KernelLaunchReq{
-                .stream = k->stream,
-                .grid_dim = {k->grid_x, k->grid_y, k->grid_z},
-                .block_dim = {k->block_x, k->block_y, k->block_z},
-                .kernel_name = kernel_name_str.c_str(),
-                .params_data = params,
-                .params_size = k->params_len,
-            });
-            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+            KernelLaunch(k, kernel_name_str.c_str(), params_data);
+            if (!SendResp(cli, 0, nullptr, 0))
                 break;
-        } else if (h.op == radrpc::OP_MEMCPY) {
-            auto* m = reinterpret_cast<const radrpc::MemcpyReq*>(req.data());
-            const uint8_t* h2d_data = nullptr;
-            if (m->dir == radMemCpyDir_H2D)
-                h2d_data = req.data() + sizeof(*m);
-            core::MemCpy(core::MemCpyReq{
-                .stream = m->stream,
-                .dst_addr = m->dst,
-                .src_addr = m->src,
-                .bytes = m->bytes,
-                .dir = static_cast<radMemCpyDir>(m->dir),
-                .h2d_data = h2d_data,
-            });
-            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+        } else if (h.op == OP_MEMCPY) {
+            const void* h2d_data = req.data() + sizeof(MemCpyReq);
+            MemCpy((MemCpyReq*)req.data(), h2d_data);
+            if (!SendResp(cli, 0, nullptr, 0))
                 break;
-        } else if (h.op == radrpc::OP_EVENT_RECORD) {
-            auto* s = reinterpret_cast<const radrpc::StreamReq*>(req.data());
-            radrpc::EventResp resp{core::EventRecord(s->stream)};
-            if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
+        } else if (h.op == OP_EVENT_RECORD) {
+            uint64_t resp = EventRecord(*(radStream_t*)req.data());
+            if (!SendResp(cli, 0, &resp, sizeof(resp)))
                 break;
-        } else if (h.op == radrpc::OP_WAIT_EVENT) {
-            auto* w = reinterpret_cast<const radrpc::WaitEventReq*>(req.data());
-            core::WaitEvent(core::WaitEventReq{
-                .stream = w->stream,
-                .event = w->event,
-            });
-            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+        } else if (h.op == OP_WAIT_EVENT) {
+            WaitEvent((WaitEventReq*)req.data());
+            if (!SendResp(cli, 0, nullptr, 0))
                 break;
-        } else if (h.op == radrpc::OP_SYNC) {
-            auto* s = reinterpret_cast<const radrpc::SyncReq*>(req.data());
-            core::Synchronize(core::SyncReq{
-                .stream = s->stream,
-                .cmd_id = s->cmd_id,
-            });
-            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+        } else if (h.op == OP_SYNC) {
+            Synchronize((SyncReq*)req.data());
+            if (!SendResp(cli, 0, nullptr, 0))
                 break;
         } else {
-            if (!radrpc::SendResp(cli, -1, nullptr, 0))
+            if (!SendResp(cli, -1, nullptr, 0))
                 break;
         }
     }

@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <vector>
 
-namespace radrpc {
 
 enum Op : uint32_t {
     OP_CREATE_STREAM = 1,
@@ -29,53 +28,29 @@ struct RespHeader {
     uint32_t size;
 };
 
-struct CreateStreamResp {
-    uint64_t stream;
-};
-
-struct MallocReq {
-    uint64_t bytes;
-};
-
-struct MallocResp {
-    uint32_t addr;
-};
-
 struct KernelLaunchReq {
-    uint64_t stream;
-    uint32_t grid_x;
-    uint32_t grid_y;
-    uint32_t grid_z;
-    uint32_t block_x;
-    uint32_t block_y;
-    uint32_t block_z;
+    radStream_t stream;
+    radDim3 grid_dim;
+    radDim3 block_dim;
+    uint32_t params_size;
     uint32_t name_len;
-    uint32_t params_len;
 };
 
-struct MemcpyReq {
-    uint64_t stream;
-    uint32_t dst;
-    uint32_t src;
+struct MemCpyReq {
+    radStream_t stream;
+    uint32_t dst_addr;
+    uint32_t src_addr;
     uint32_t bytes;
-    uint32_t dir;
-};
-
-struct StreamReq {
-    uint64_t stream;
-};
-
-struct EventResp {
-    uint64_t cmd_id;
+    radMemCpyDir dir;
 };
 
 struct WaitEventReq {
-    uint64_t stream;
+    radStream_t stream;
     radEvent_t event;
 };
 
 struct SyncReq {
-    radStream_t stream;
+    uint64_t stream;
     uint64_t cmd_id;
 };
 
@@ -130,7 +105,5 @@ inline bool SendResp(int fd, int32_t status, const void* payload, uint32_t size)
         return false;
     return size == 0 || WriteFull(fd, payload, size);
 }
-
-} // namespace radrpc
 
 #endif

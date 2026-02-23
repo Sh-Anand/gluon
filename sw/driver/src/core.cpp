@@ -14,8 +14,6 @@
 #include <new>
 #include <thread>
 
-namespace {
-
 struct radStream {
     uint8_t hw_sid;
     std::vector<std::unique_ptr<Command>> commands;
@@ -91,24 +89,20 @@ private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
 };
 
-} // namespace
-
-namespace core {
-
-void KernelLaunch(const KernelLaunchReq& req) {
+void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data) {
     std::lock_guard<std::mutex> lock(core_mu);
     ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
 
-    size_t payload_size = KERNEL_HEADER_MEM_END + req.params_size + loader->size;
+    size_t payload_size = KERNEL_HEADER_MEM_END + req->params_size + loader->size;
     auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
     if (!kernel_payload_addr_opt)
         return;
     uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
-    uint32_t kernel_reloc_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END + req.params_size;
+    uint32_t kernel_reloc_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END + req->params_size;
 
     loader->applyRelocations(kernel_reloc_addr);
     uint32_t start_pc = loader->getSymbolAddress("_start", kernel_reloc_addr);
-    uint32_t kernel_pc = loader->getSymbolAddress(req.kernel_name, kernel_reloc_addr);
+    uint32_t kernel_pc = loader->getSymbolAddress(kernel_name, kernel_reloc_addr);
 
     auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
     if (!stack_base_addr_opt)
@@ -127,32 +121,32 @@ void KernelLaunch(const KernelLaunchReq& req) {
     BufferWriter writer{payload.get(), payload.get() + payload_size};
     if (!writer.write_u32(start_pc) ||
         !writer.write_u32(kernel_pc) ||
-        !writer.write_u32(req.params_size) ||
+        !writer.write_u32(req->params_size) ||
         !writer.write_u32(static_cast<std::uint32_t>(loader->size)) ||
         !writer.write_u32(stack_base_addr) ||
         !writer.write_u32(tls_base_addr) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.grid_dim.x)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.grid_dim.y)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.grid_dim.z)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.block_dim.x)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.block_dim.y)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req.block_dim.z)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.x)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.y)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.z)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.x)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.y)) ||
+        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.z)) ||
         !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
         !writer.write_u8(KERNEL_REGS_PER_THREAD) ||
         !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
-        !writer.write_block(req.params_data, req.params_size) ||
+        !writer.write_block(params_data, req->params_size) ||
         !writer.write_block(loader->binary_data, loader->size) ||
         !writer.finished()) {
         return;
     }
 
-    streams[req.stream].commands.push_back(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
-    hw_stream_cmd_ids[streams[req.stream].hw_sid]++;
+    streams[req->stream].commands.push_back(std::make_unique<KernelCommand>(loader->binary_data, loader->size, kernel_reloc_addr));
+    hw_stream_cmd_ids[streams[req->stream].hw_sid]++;
 
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = streams[req.stream].hw_sid;
+    header_bytes[0] = streams[req->stream].hw_sid;
     header_bytes[1] = radCmdType_KERNEL;
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
@@ -160,39 +154,41 @@ void KernelLaunch(const KernelLaunchReq& req) {
     (void)rad::SubmitCommand(header_bytes, payload.get(), payload_size);
 }
 
-void MemCpy(const MemCpyReq& req) {
+void MemCpy(MemCpyReq* req, const void* h2d_data) {
     std::lock_guard<std::mutex> lock(core_mu);
     void *src_addr = nullptr;
     void *dst_addr = nullptr;
     const void *payload_addr = nullptr;
     size_t payload_size = 0;
-    if (req.dir == radMemCpyDir_H2D) {
-        dst_addr = reinterpret_cast<void*>(static_cast<std::uintptr_t>(req.dst_addr));
-        payload_addr = req.h2d_data;
-        payload_size = req.bytes;
+    if (req->dir == radMemCpyDir_H2D) {
+        dst_addr = (void*)(req->dst_addr);
+        payload_addr = h2d_data;
+        payload_size = req->bytes;
     } else {
-        src_addr = reinterpret_cast<void*>(static_cast<std::uintptr_t>(req.src_addr));
+        src_addr = (void*)(req->src_addr);
     }
 
-    auto copy_cmd = std::make_unique<CopyCommand>(req.src_addr, req.dst_addr, req.bytes, nullptr, req.dir);
+    uint32_t src_addr_u32 = (uint32_t)(uintptr_t)(src_addr);
+    uint32_t dst_addr_u32 = (uint32_t)(uintptr_t)(dst_addr);
+    auto copy_cmd = std::make_unique<CopyCommand>(src_addr_u32, dst_addr_u32, req->bytes, nullptr, req->dir);
     CopyCommand* copy_cmd_raw = copy_cmd.get();
-    streams[req.stream].commands.push_back(std::move(copy_cmd));
-    hw_stream_cmd_ids[streams[req.stream].hw_sid]++;
+    streams[req->stream].commands.push_back(std::move(copy_cmd));
+    hw_stream_cmd_ids[streams[req->stream].hw_sid]++;
 
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = streams[req.stream].hw_sid;
+    header_bytes[0] = streams[req->stream].hw_sid;
     header_bytes[1] = radCmdType_MEM;
     header_bytes[2] = radMemCmdType_COPY;
-    write_u32_le(header_bytes.data() + 3, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(src_addr)));
-    write_u32_le(header_bytes.data() + 7, static_cast<std::uint32_t>(reinterpret_cast<std::uintptr_t>(dst_addr)));
-    write_u32_le(header_bytes.data() + 11, req.bytes);
-    header_bytes[15] = req.dir;
+    write_u32_le(header_bytes.data() + 3, src_addr_u32);
+    write_u32_le(header_bytes.data() + 7, dst_addr_u32);
+    write_u32_le(header_bytes.data() + 11, req->bytes);
+    header_bytes[15] = req->dir;
     (void)rad::SubmitCommand(header_bytes, payload_addr, payload_size);
-    if (req.dir == radMemCpyDir_D2H)
+    if (req->dir == radMemCpyDir_D2H)
         copy_cmd_raw->shared_addr = rad::GetLastSharedMemoryBase();
 }
 
-uint32_t Malloc(uint64_t bytes) {
+uint32_t GPUMalloc(uint32_t bytes) {
     std::lock_guard<std::mutex> lock(core_mu);
     auto device_addr = allocateDeviceMemory(bytes);
     return device_addr ? *device_addr : 0;
@@ -211,13 +207,13 @@ uint64_t EventRecord(radStream_t stream) {
     return hw_stream_cmd_ids[streams[stream].hw_sid];
 }
 
-void WaitEvent(const WaitEventReq& req) {
+void WaitEvent(WaitEventReq* req) {
     std::lock_guard<std::mutex> lock(core_mu);
     std::array<std::uint8_t, 16> header_bytes{};
-    header_bytes[0] = streams[req.stream].hw_sid;
+    header_bytes[0] = streams[req->stream].hw_sid;
     header_bytes[1] = radCmdType_WAIT;
-    header_bytes[2] = streams[req.event.stream].hw_sid;
-    write_u64_le(header_bytes.data() + 3, req.event.cmd_id);
+    header_bytes[2] = streams[req->event.stream].hw_sid;
+    write_u64_le(header_bytes.data() + 3, req->event.cmd_id);
     (void)rad::SubmitCommand(header_bytes, nullptr, 0);
 }
 
@@ -227,9 +223,9 @@ bool GetError() {
         return false;
 
     std::lock_guard<std::mutex> lock(core_mu);
-    uint64_t stream = static_cast<uint8_t>(response->at(0));
-    hw_stream_done_ids[stream]++;
-    Command* command = streams[stream].commands.front().get();
+    uint8_t hw_sid = response->at(0);
+    hw_stream_done_ids[hw_sid]++;
+    Command* command = streams[hw_sid].commands.front().get();
     if (!command)
         return false;
 
@@ -243,25 +239,23 @@ bool GetError() {
         }
     }
 
-    streams[stream].commands.erase(streams[stream].commands.begin());
+    streams[hw_sid].commands.erase(streams[hw_sid].commands.begin());
     return true;
 }
 
-void Synchronize(const SyncReq& req) {
+void Synchronize(SyncReq* req) {
     uint64_t wait_cmd;
     {
         std::lock_guard<std::mutex> lock(core_mu);
-        if (req.cmd_id == 0) wait_cmd = hw_stream_cmd_ids[streams[req.stream].hw_sid];
-        else wait_cmd = req.cmd_id;
+        if (req->cmd_id == 0) wait_cmd = hw_stream_cmd_ids[streams[req->stream].hw_sid];
+        else wait_cmd = req->cmd_id;
     }
 
     while (true) {
         {
             std::lock_guard<std::mutex> lock(core_mu);
-            if (hw_stream_done_ids[streams[req.stream].hw_sid] >= wait_cmd) break;
+            if (hw_stream_done_ids[streams[req->stream].hw_sid] >= wait_cmd) break;
         }
         std::this_thread::yield();
     }
 }
-
-} // namespace core
