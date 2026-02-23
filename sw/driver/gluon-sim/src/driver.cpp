@@ -215,10 +215,8 @@ int main() {
                 break;
         } else if (h.op == OP_KERNEL_LAUNCH) {
             KernelLaunchReq* k = (KernelLaunchReq*)req.data();
-            const char* kernel_name = reinterpret_cast<const char*>(req.data() + sizeof(*k));
-            const uint8_t* params_data = req.data() + sizeof(*k) + k->name_len;
-            std::string kernel_name_str(kernel_name, kernel_name + k->name_len);
-            KernelLaunch(k, kernel_name_str.c_str(), params_data);
+            const uint8_t* params_data = req.data() + sizeof(*k);
+            KernelLaunch(k, params_data);
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
         } else if (h.op == OP_MEMCPY) {

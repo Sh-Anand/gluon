@@ -1,5 +1,6 @@
 #include "rad.h"
 #include "rad_rpc.hpp"
+#include "loader.hpp"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -66,21 +67,28 @@ void radKernelLaunch(const char *kernel_name,
                      radDim3 block_dim,
                      radParamBuf* params,
                      radStream_t stream) {
-    uint32_t name_len = static_cast<uint32_t>(std::strlen(kernel_name));
-    uint32_t params_len = params ? static_cast<uint32_t>(params->size()) : 0;
+    static ELFLoader *loader = nullptr;
+    if (!loader) {
+        loader = new ELFLoader("sw/test/build/kernel.elf");
+        void  *kernel_bin_addr;
+        radMalloc(&kernel_bin_addr, loader->size);
+        loader->applyRelocations((uint32_t)(uintptr_t)(kernel_bin_addr));
+        radMemcpyAsync(kernel_bin_addr, loader->binary_data, loader->size, radMemcpyDir_H2D, stream);
+    }
 
+    uint32_t params_len = params ? static_cast<uint32_t>(params->size()) : 0;
     KernelLaunchReq req{};
     req.stream = stream;
     req.grid_dim = grid_dim;
     req.block_dim = block_dim;
     req.params_size = params_len;
-    req.name_len = name_len;
+    req.start_pc = loader->getSymbolAddress("_start");
+    req.kernel_pc = loader->getSymbolAddress(kernel_name);
 
-    std::vector<uint8_t> payload(sizeof(req) + name_len + params_len);
+    std::vector<uint8_t> payload(sizeof(req) + params_len);
     std::memcpy(payload.data(), &req, sizeof(req));
-    std::memcpy(payload.data() + sizeof(req), kernel_name, name_len);
     if (params_len > 0)
-        std::memcpy(payload.data() + sizeof(req) + name_len, params->data(), params_len);
+        std::memcpy(payload.data() + sizeof(req), params->data(), params_len);
 
     std::vector<uint8_t> resp;
     (void)rpc_call(OP_KERNEL_LAUNCH, payload.data(), (uint32_t)(payload.size()), &resp);

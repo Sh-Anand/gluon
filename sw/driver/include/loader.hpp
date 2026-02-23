@@ -20,12 +20,13 @@ public:
     elfio reader;
     std::unordered_map<std::string, uint32_t> elf_symbol_map;
     uint32_t elf_min_vaddr; // this should always be 0 but keeping it just in case
+    uint32_t gpu_addr;
     uint8_t* binary_data;
     size_t size;
 
     ELFLoader() : elf_min_vaddr(0), binary_data(nullptr), size(0) {}
 
-    ELFLoader(const std::string& elf_path) : elf_min_vaddr(0), binary_data(nullptr), size(0) {
+    ELFLoader(const std::string& elf_path) : elf_min_vaddr(0), gpu_addr(0), binary_data(nullptr), size(0) {
         parseELF(elf_path);
     }
 
@@ -33,12 +34,12 @@ public:
         free(binary_data);
     }
 
-    uint32_t getSymbolAddress(const std::string& symbol_name, uint32_t reloc_addr) {
+    uint32_t getSymbolAddress(const std::string& symbol_name) {
         assert(!symbol_name.empty() && binary_data);
         auto it = elf_symbol_map.find(symbol_name);
         assert(it != elf_symbol_map.end() && "symbol not found");
         uint32_t addr = it->second - elf_min_vaddr;
-        return reloc_addr + addr;
+        return gpu_addr + addr;
     }
 
     void parseELF(const std::string& elf_path) {
@@ -79,6 +80,7 @@ public:
 
     // also builds symbol cache
     void applyRelocations(uint32_t reloc_addr) {
+        this->gpu_addr = reloc_addr;
         // apply .rela.dyn
         section* rela_dyn_sec = nullptr;
         for (unsigned i = 0; i < reader.sections.size(); ++i) {

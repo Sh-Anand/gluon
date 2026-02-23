@@ -47,7 +47,7 @@ struct HWStream {
     uint64_t tail_cmd_id;
 };
 
-void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data);
+void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data);
 
 void MemCpy(MemCpyReq* req);
 

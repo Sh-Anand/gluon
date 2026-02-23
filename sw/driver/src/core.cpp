@@ -1,7 +1,6 @@
 #include "core.h"
 
 #include "driver.h"
-#include "loader.hpp"
 #include "mem.hpp"
 
 #include <cstdint>
@@ -10,6 +9,7 @@
 #include <memory>
 #include <new>
 #include <thread>
+#include <stdexcept>
 
 static std::vector<radStream> streams = {0};
 static std::vector<HWStream> hw_streams = std::vector<HWStream>(HW_STREAM_COUNT, HWStream{0, 0});
@@ -76,20 +76,12 @@ private:
     bool remaining(std::size_t size) const { return cursor + size <= end; }
 };
 
-void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data) {
-    std::lock_guard<std::mutex> lock(core_mu);
-    ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
-
-    size_t payload_size = KERNEL_HEADER_MEM_END + req->params_size + loader->size;
+void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data) {
+    size_t payload_size = KERNEL_HEADER_MEM_END + req->params_size;
     auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
     if (!kernel_payload_addr_opt)
-        return;
+        throw std::runtime_error("Failed to allocate device memory for kernel payload");
     uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
-    uint32_t kernel_reloc_addr = kernel_payload_addr + KERNEL_HEADER_MEM_END + req->params_size;
-
-    loader->applyRelocations(kernel_reloc_addr);
-    uint32_t start_pc = loader->getSymbolAddress("_start", kernel_reloc_addr);
-    uint32_t kernel_pc = loader->getSymbolAddress(kernel_name, kernel_reloc_addr);
 
     auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
     if (!stack_base_addr_opt)
@@ -106,10 +98,9 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
         return;
 
     BufferWriter writer{payload.get(), payload.get() + payload_size};
-    if (!writer.write_u32(start_pc) ||
-        !writer.write_u32(kernel_pc) ||
+    if (!writer.write_u32(req->start_pc) ||
+        !writer.write_u32(req->kernel_pc) ||
         !writer.write_u32(req->params_size) ||
-        !writer.write_u32(static_cast<std::uint32_t>(loader->size)) ||
         !writer.write_u32(stack_base_addr) ||
         !writer.write_u32(tls_base_addr) ||
         !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.x)) ||
@@ -124,12 +115,14 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, req->params_size) ||
-        !writer.write_block(loader->binary_data, loader->size) ||
         !writer.finished()) {
         return;
     }
 
-    hw_streams[streams[req->stream]].tail_cmd_id++;
+    {
+        std::lock_guard<std::mutex> lock(core_mu);
+        hw_streams[streams[req->stream]].tail_cmd_id++;
+    }
 
     std::vector<uint8_t> header_bytes(CMD_KERNEL_HEADER_SIZE, 0);
     header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
@@ -143,12 +136,15 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
 
 // TODO: memcpy way way too hacky
 void MemCpy(MemCpyReq* req) {
-    std::lock_guard<std::mutex> lock(core_mu);
     uint64_t src_addr = (uint64_t)(uintptr_t)(req->src_addr);
     uint64_t dst_addr = (uint64_t)(uintptr_t)(req->dst_addr);
     void* aux_ptr = (void*)(uintptr_t)(req->dst_addr);
     size_t aux_size = 0;
-    hw_streams[streams[req->stream]].tail_cmd_id++;
+
+    {
+        std::lock_guard<std::mutex> lock(core_mu);
+        hw_streams[streams[req->stream]].tail_cmd_id++;
+    }
 
     // hack to keep interface reusable
     std::vector<uint8_t> header_bytes(CMD_MEM_HEADER_SIZE, 0);
