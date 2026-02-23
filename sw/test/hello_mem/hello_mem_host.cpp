@@ -7,7 +7,7 @@ int main() {
     void* x_ptr;
     radMalloc(&x_ptr, 12);
     printf("Copying to GPU memory\n");
-    radMemCpy(x_ptr, x, 8, radMemCpyDir_H2D);
+    radMemcpyAsync(x_ptr, x, 8, radMemcpyDir_H2D);
     radStreamSynchronize();
     
     printf("Launching kernel\n");
@@ -24,7 +24,7 @@ int main() {
     radStreamSynchronize();
 
     int z;
-    radMemCpy(&z, z_ptr, 4, radMemCpyDir_D2H);
+    radMemcpyAsync(&z, z_ptr, 4, radMemcpyDir_D2H);
     radStreamSynchronize();
     printf("Host received: %d\n", z);
     return 0;

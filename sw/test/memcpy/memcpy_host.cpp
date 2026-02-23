@@ -11,12 +11,12 @@ int main() {
     radMalloc(&dst, bytes);
     void *src = malloc(bytes);
     memset(src, 5, bytes);
-    radMemCpy(dst, src, bytes, radMemCpyDir_H2D);
+    radMemcpyAsync(dst, src, bytes, radMemcpyDir_H2D);
     radStreamSynchronize();
     free(src);
     
     void *ptr = malloc(bytes);
-    radMemCpy(ptr, dst, bytes, radMemCpyDir_D2H);
+    radMemcpyAsync(ptr, dst, bytes, radMemcpyDir_D2H);
     radStreamSynchronize();
 
     for (size_t i = 0; i < bytes; i++) {

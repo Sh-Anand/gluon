@@ -42,7 +42,7 @@ struct MemCpyReq {
     uint64_t dst_addr;
     uint64_t src_addr;
     uint32_t bytes;
-    radMemCpyDir dir;
+    radMemcpyDir dir;
 };
 
 struct WaitEventReq {

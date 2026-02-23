@@ -16,9 +16,9 @@ struct radDim3 {
     unsigned int z;
 };
 
-enum radMemCpyDir {
-    radMemCpyDir_H2D,
-    radMemCpyDir_D2H,
+enum radMemcpyDir {
+    radMemcpyDir_H2D,
+    radMemcpyDir_D2H,
 };
 
 struct radParamBuf {
@@ -69,7 +69,7 @@ struct radEvent_t {
 
 void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream_t stream = 0);
 
-void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream = 0);
+void radMemcpyAsync(void *dst, void *src, size_t bytes, radMemcpyDir dir, radStream_t stream = 0);
 
 void radMalloc(void **ptr, size_t bytes);
 

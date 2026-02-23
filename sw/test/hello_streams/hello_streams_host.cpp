@@ -13,8 +13,8 @@ int main() {
     radMalloc(&x_ptr, sizeof(x));
     radMalloc(&y_ptr, sizeof(x));
     printf("Copying to GPU Memory\n");
-    radMemCpy(x_ptr, &x, sizeof(x), radMemCpyDir_H2D);
-    radMemCpy(y_ptr, &x, sizeof(x), radMemCpyDir_H2D);
+    radMemcpyAsync(x_ptr, &x, sizeof(x), radMemcpyDir_H2D);
+    radMemcpyAsync(y_ptr, &x, sizeof(x), radMemcpyDir_H2D);
     radStreamSynchronize();
 
     radDim3 grid = {1, 1, 1};
@@ -35,8 +35,8 @@ int main() {
     radKernelLaunch("plus_3", grid, block, &params_one, s1);
     radKernelLaunch("times_2", grid, block, &params_two, s2);
     int a, b;
-    radMemCpy(&a, x_ptr, sizeof(a), radMemCpyDir_D2H, s1);
-    radMemCpy(&b, y_ptr, sizeof(b), radMemCpyDir_D2H, s2);
+    radMemcpyAsync(&a, x_ptr, sizeof(a), radMemcpyDir_D2H, s1);
+    radMemcpyAsync(&b, y_ptr, sizeof(b), radMemcpyDir_D2H, s2);
     radStreamSynchronize(s1);
     radStreamSynchronize(s2);
 

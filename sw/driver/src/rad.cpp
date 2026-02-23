@@ -86,7 +86,7 @@ void radKernelLaunch(const char *kernel_name,
     (void)rpc_call(OP_KERNEL_LAUNCH, payload.data(), (uint32_t)(payload.size()), &resp);
 }
 
-void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream) {
+void radMemcpyAsync(void *dst, void *src, size_t bytes, radMemcpyDir dir, radStream_t stream) {
     if (dst == nullptr || src == nullptr)
         return;
 
