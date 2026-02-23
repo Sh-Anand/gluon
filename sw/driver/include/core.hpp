@@ -7,6 +7,13 @@
 #include <cstddef>
 #include <cstdint>
 
+typedef uint8_t radStream;
+
+struct HWStream {
+    uint64_t head_cmd_id;
+    uint64_t tail_cmd_id;
+};
+
 void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data);
 
 void MemCpy(MemCpyReq* req, const void* h2d_data);
