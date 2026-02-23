@@ -22,9 +22,6 @@
 #include <vector>
 
 #include <toml.hpp>
-
-namespace rad {
-namespace {
 struct SharedMemoryRegion {
     int fd = -1;
     void* addr = MAP_FAILED;
@@ -130,8 +127,6 @@ bool SendCommand(int sock, const std::array<std::uint8_t, CMD_HEADER_SIZE>& data
     return true;
 }
 
-}
-
 void ShutdownConnection() {
     ConnectionState& state = GetState();
     if (state.sock != -1) {
@@ -212,7 +207,7 @@ static bool CreateRegion(SharedMemoryRegion& region, std::size_t size) {
     return true;
 }
 
-std::optional<std::string> SubmitCommand(const std::vector<std::uint8_t>& header,
+std::optional<std::string> driver::SubmitCommand(const std::vector<std::uint8_t>& header,
                                          const void* payload,
                                          std::size_t payload_size) {
     bool initialized = false;
@@ -281,7 +276,7 @@ std::optional<std::string> SubmitCommand(const std::vector<std::uint8_t>& header
     return std::string("OK");
 }
 
-std::optional<std::string> ReceiveError() {
+std::optional<std::string> driver::ReceiveError() {
     ConnectionState& state = GetState();
     if (!state.initialized) {
         return std::nullopt;
@@ -326,8 +321,6 @@ void ReleaseSharedMemoryBase(void* addr) {
         }
     }
 }
-
-}  // namespace rad
 
 constexpr const char* kDriverSocketPath = "./rad-driver.sock";
 

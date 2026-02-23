@@ -137,7 +137,7 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
     write_u32_le(header_bytes.data() + 2, 0);
     write_u32_le(header_bytes.data() + 6, static_cast<std::uint32_t>(payload_size));
     write_u32_le(header_bytes.data() + 10, kernel_payload_addr);
-    (void)rad::SubmitCommand(header_bytes, payload.get(), payload_size);
+    (void)driver::SubmitCommand(header_bytes, payload.get(), payload_size);
 }
 
 // TODO: memcpy way way too hacky
@@ -162,7 +162,7 @@ void MemCpy(MemCpyReq* req, void* h2d_data) {
     write_u32_le(header_bytes.data() + 3 + sizeof(uint32_t), dst_addr); // 4 bytes
     write_u32_le(header_bytes.data() + 3 + sizeof(uint32_t) + sizeof(uint32_t), req->bytes); // 4 bytes
     header_bytes[3 + sizeof(uint32_t) + sizeof(uint32_t) + sizeof(uint32_t)] = req->dir; // 1 byte
-    (void)rad::SubmitCommand(header_bytes, aux_ptr, aux_size);
+    (void)driver::SubmitCommand(header_bytes, aux_ptr, aux_size);
 }
 
 uint32_t GPUMalloc(uint32_t bytes) {
@@ -191,11 +191,11 @@ void WaitEvent(WaitEventReq* req) {
     header_bytes[1] = radCmdType_WAIT;
     header_bytes[2] = streams[req->event.stream];
     write_u64_le(header_bytes.data() + 3, req->event.cmd_id);
-    (void)rad::SubmitCommand(header_bytes, nullptr, 0);
+    (void)driver::SubmitCommand(header_bytes, nullptr, 0);
 }
 
 bool GetError() {
-    auto response = rad::ReceiveError();
+    auto response = driver::ReceiveError();
     if (!response)
         return false;
 
