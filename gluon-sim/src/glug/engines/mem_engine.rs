@@ -44,24 +44,24 @@ impl From<u8> for MemOp {
 pub struct MemCommand {
     pub sid: u8,
     pub op: MemOp,
-    pub bytes: [u8; 13],
+    pub bytes: [u8; 21],
 }
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CopyCommand {
-    pub src: u32,
-    pub dst: u32,
+    pub src: u64,
+    pub dst: u64,
     pub len: u32,
     pub flags: u8,
 }
 
 impl CopyCommand {
-    pub fn from_bytes(bytes: [u8; 13]) -> Self {
+    pub fn from_bytes(bytes: [u8; 21]) -> Self {
         CopyCommand {
-            src: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-            dst: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-            len: u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
-            flags: bytes[12],
+            src: u64::from_le_bytes(bytes[0..8].try_into().unwrap()),
+            dst: u64::from_le_bytes(bytes[8..16].try_into().unwrap()),
+            len: u32::from_le_bytes(bytes[16..20].try_into().unwrap()),
+            flags: bytes[20],
         }
     }
 }
@@ -75,11 +75,11 @@ pub struct SetCommand {
 }
 
 impl SetCommand {
-    pub fn from_bytes(bytes: [u8; 13]) -> Self {
+    pub fn from_bytes(bytes: [u8; 21]) -> Self {
         SetCommand {
-            dst: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
-            value: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
-            len: u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            dst: u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+            value: u32::from_le_bytes(bytes[4..8].try_into().unwrap()),
+            len: u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
             flags: bytes[12],
         }
     }
@@ -90,7 +90,7 @@ impl MemCommand {
         let engine_bytes = cmd.bytes();
 
         let op = MemOp::from(engine_bytes[0]);
-        let bytes = engine_bytes[1..14].try_into().unwrap();
+        let bytes = engine_bytes[1..22].try_into().unwrap();
 
         MemCommand {
             sid: cmd.sid(),

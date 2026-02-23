@@ -34,7 +34,7 @@ pub struct KernelEngineConfig {}
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KernelCommand {
     pub sid: u8,
-    pub host_addr: u32,
+    pub host_addr: u64,
     pub sz: u32,
     pub gpu_addr: u32,
 }
@@ -43,9 +43,9 @@ impl KernelCommand {
     pub fn from_engine_cmd(cmd: EngineCommand) -> Self {
         let payload = cmd.bytes();
 
-        let host_addr = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
-        let sz = u32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]);
-        let gpu_addr = u32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]);
+        let host_addr = u64::from_le_bytes(payload[0..8].try_into().unwrap());
+        let sz = u32::from_le_bytes(payload[8..12].try_into().unwrap());
+        let gpu_addr = u32::from_le_bytes(payload[12..16].try_into().unwrap());
 
         KernelCommand {
             sid: cmd.sid(),
@@ -283,7 +283,7 @@ impl Clocked for KernelEngine {
                     dma_req.target_addr = self
                         .cmd
                         .expect("Unreachable:Kernel command not set")
-                        .gpu_addr;
+                        .gpu_addr as u64;
                     dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").sz;
                     self.dma_req = Some(dma_req);
                     info!(

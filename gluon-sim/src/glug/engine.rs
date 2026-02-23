@@ -84,13 +84,13 @@ impl EngineConfig {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct EngineCommand {
     sid: u8,
-    bytes: [u8; 14],
+    bytes: [u8; 22],
 }
 
 impl EngineCommand {
     pub fn from_command(cmd: Command) -> Self {
-        let mut bytes = [0u8; 14];
-        bytes.copy_from_slice(cmd.slice(2, 16));
+        let mut bytes = [0u8; 22];
+        bytes.copy_from_slice(cmd.slice(2, 24));
         EngineCommand {
             sid: cmd.sid(),
             bytes,
@@ -101,7 +101,7 @@ impl EngineCommand {
         self.sid
     }
 
-    pub fn bytes(&self) -> &[u8; 14] {
+    pub fn bytes(&self) -> &[u8; 22] {
         &self.bytes
     }
 }

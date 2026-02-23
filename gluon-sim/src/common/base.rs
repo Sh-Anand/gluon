@@ -33,11 +33,11 @@ pub trait Configurable<T: Default> {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Command {
-    bytes: [u8; 16],
+    bytes: [u8; 24],
 }
 
 impl Command {
-    pub fn from_bytes(bytes: [u8; 16]) -> Self {
+    pub fn from_bytes(bytes: [u8; 24]) -> Self {
         Command { bytes }
     }
 
@@ -88,8 +88,8 @@ impl From<bool> for DMADir {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DMAReq {
     pub dir: DMADir,
-    pub src_addr: u32,
-    pub target_addr: u32,
+    pub src_addr: u64,
+    pub target_addr: u64,
     pub sz: u32,
     pub done: bool,
 }

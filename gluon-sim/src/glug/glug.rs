@@ -184,7 +184,7 @@ impl Clocked for GLUG {
                     let mut dram = self.dram.write().expect("gmem poisoned");
 
                     let data = (0..dma_req.sz)
-                        .map(|byte| unsafe { *((dma_req.src_addr + byte) as *const u8) })
+                        .map(|byte| unsafe { *((dma_req.src_addr + byte as u64) as *const u8) })
                         .collect::<Vec<u8>>();
                     dram.write(dma_req.target_addr as usize, &data).expect("gmem write errored");
                 }
@@ -193,7 +193,7 @@ impl Clocked for GLUG {
                     let dram = self.dram.read().expect("gmem poisoned");
                     let data = dram.read(dma_req.src_addr as usize, dma_req.sz as usize).expect("gmem read errored");
                     data.iter().enumerate().for_each(|(idx, byte)| unsafe {
-                        *((dma_req.target_addr + idx as u32) as *mut u8) = *byte;
+                        *((dma_req.target_addr as u32 + idx as u32) as *mut u8) = *byte;
                     });
                 }
             };

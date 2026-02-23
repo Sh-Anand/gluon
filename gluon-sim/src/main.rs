@@ -83,11 +83,11 @@ fn load_config(path: &str) -> Result<Config, Box<dyn Error>> {
     Ok(config)
 }
 
-fn recv_command(socket_fd: RawFd) -> io::Result<([u8; 16], Option<(OwnedFd, usize)>)> {
+fn recv_command(socket_fd: RawFd) -> io::Result<([u8; 24], Option<(OwnedFd, usize)>)> {
     const CMSG_BUFFER_LEN: usize =
         unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize };
 
-    let mut data_buf = [0u8; 16];
+    let mut data_buf = [0u8; 24];
     let mut cmsg_buffer = [0u8; CMSG_BUFFER_LEN];
     let mut iov = libc::iovec {
         iov_base: data_buf.as_mut_ptr().cast(),
@@ -115,18 +115,18 @@ fn recv_command(socket_fd: RawFd) -> io::Result<([u8; 16], Option<(OwnedFd, usiz
             let data = unsafe { libc::CMSG_DATA(cmsg) as *const RawFd };
             if !data.is_null() {
                 let fd = unsafe { *data };
-                let base_u32 = match data_buf[1] {
-                    0 => u32::from_le_bytes([data_buf[2], data_buf[3], data_buf[4], data_buf[5]]),
+                let base_u64 = match data_buf[1] {
+                    0 => u64::from_le_bytes(data_buf[2..10].try_into().unwrap()),
                     1 => {
-                        if data_buf[15] == 0 {
-                            u32::from_le_bytes([data_buf[3], data_buf[4], data_buf[5], data_buf[6]])
+                        if data_buf[23] == 0 {
+                            u64::from_le_bytes(data_buf[3..11].try_into().unwrap())
                         } else {
-                            u32::from_le_bytes([data_buf[7], data_buf[8], data_buf[9], data_buf[10]])
+                            u64::from_le_bytes(data_buf[11..19].try_into().unwrap())
                         }
                     }
                     _ => 0,
                 };
-                fd_base = Some((unsafe { OwnedFd::from_raw_fd(fd) }, base_u32 as usize));
+                fd_base = Some((unsafe { OwnedFd::from_raw_fd(fd) }, base_u64 as usize));
             }
         }
         cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
