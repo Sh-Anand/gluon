@@ -175,6 +175,7 @@ void MemCpy(MemCpyReq* req, const void* h2d_data) {
     streams[req->stream].commands.push_back(std::move(copy_cmd));
     hw_stream_cmd_ids[streams[req->stream].hw_sid]++;
 
+    // hack to keep interface reusable
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = streams[req->stream].hw_sid;
     header_bytes[1] = radCmdType_MEM;

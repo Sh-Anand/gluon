@@ -38,8 +38,8 @@ struct KernelLaunchReq {
 
 struct MemCpyReq {
     radStream_t stream;
-    uint32_t dst_addr;
-    uint32_t src_addr;
+    uint64_t dst_addr;
+    uint64_t src_addr;
     uint32_t bytes;
     radMemCpyDir dir;
 };

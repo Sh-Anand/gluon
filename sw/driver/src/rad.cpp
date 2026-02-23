@@ -76,7 +76,7 @@ void radKernelLaunch(const char *kernel_name,
         std::memcpy(payload.data() + sizeof(req) + name_len, params->data(), params_len);
 
     std::vector<uint8_t> resp;
-    (void)rpc_call(OP_KERNEL_LAUNCH, payload.data(), static_cast<uint32_t>(payload.size()), &resp);
+    (void)rpc_call(OP_KERNEL_LAUNCH, payload.data(), (uint32_t)(payload.size()), &resp);
 }
 
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream) {
@@ -85,9 +85,9 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
 
     MemCpyReq req{};
     req.stream = stream;
-    req.dst_addr = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(dst));
-    req.src_addr = static_cast<uint32_t>(reinterpret_cast<std::uintptr_t>(src));
-    req.bytes = static_cast<uint32_t>(bytes);
+    req.dst_addr = (uint64_t)(uintptr_t)(dst);
+    req.src_addr = (uint64_t)(uintptr_t)(src);
+    req.bytes = (uint32_t)(bytes);
     req.dir = dir;
 
     std::vector<uint8_t> payload(sizeof(req) + (dir == radMemCpyDir_H2D ? bytes : 0));
@@ -96,7 +96,7 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
         std::memcpy(payload.data() + sizeof(req), src, bytes);
 
     std::vector<uint8_t> resp;
-    (void)rpc_call(OP_MEMCPY, payload.data(), static_cast<uint32_t>(payload.size()), &resp);
+    (void)rpc_call(OP_MEMCPY, payload.data(), (uint32_t)(payload.size()), &resp);
 }
 
 void radMalloc(void **ptr, size_t bytes) {
