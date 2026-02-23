@@ -222,21 +222,21 @@ std::optional<std::string> driver::SubmitCommand(const std::vector<std::uint8_t>
     state.last_shared_addr = nullptr;
     int sock = state.sock;
     lock.unlock();
-    std::array<std::uint8_t, CMD_HEADER_SIZE> header_bytes;
-    std::memcpy(header_bytes.data(), header.data(), CMD_HEADER_SIZE); //extreme hack
+    std::array<std::uint8_t, CMD_HEADER_SIZE> header_bytes{};
+    std::memcpy(header_bytes.data(), header.data(), header.size());
     SharedMemoryRegion region;
     bool use_region = false;
     bool retain_region = false;
-    if (header_bytes[1] == radCmdType_KERNEL) {
+    if (header_bytes[CMD_CMD_TYPE_OFFSET] == radCmdType_KERNEL) {
         use_region = true;
-    } else if (header_bytes[1] == radCmdType_MEM) {
+    } else if (header_bytes[CMD_CMD_TYPE_OFFSET] == radCmdType_MEM) {
         use_region = true;
-        retain_region = (header_bytes[15] == radMemCpyDir_D2H);
+        retain_region = (header_bytes[CMD_MEM_DIR_OFFSET] == radMemCpyDir_D2H);
     }
     if (use_region) {
         std::size_t region_size = payload_size;
         if (region_size == 0) {
-            region_size = ReadU32LE(header_bytes.data() + 11);
+            region_size = ReadU32LE(header_bytes.data() + CMD_MEM_LEN_OFFSET);
         }
         if (!CreateRegion(region, region_size)) {
             return std::nullopt;
@@ -245,16 +245,16 @@ std::optional<std::string> driver::SubmitCommand(const std::vector<std::uint8_t>
             std::memcpy(region.addr, payload, payload_size);
         }
         std::uintptr_t shared_base = reinterpret_cast<std::uintptr_t>(region.addr);
-        std::uint32_t shared_base_u32 = static_cast<std::uint32_t>(shared_base);
-        if (header_bytes[1] == radCmdType_MEM) {
-            if (header_bytes[CMD_MEMCPY_DIR_OFFSET] == radMemCpyDir_H2D) {
-                std::memcpy(header_bytes.data() + 3, &shared_base_u32, sizeof(shared_base_u32));
+        std::uint64_t shared_base_u64 = static_cast<std::uint64_t>(shared_base);
+        if (header_bytes[CMD_CMD_TYPE_OFFSET] == radCmdType_MEM) {
+            if (header_bytes[CMD_MEM_DIR_OFFSET] == radMemCpyDir_H2D) {
+                std::memcpy(header_bytes.data() + CMD_MEM_SRC_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
 
             } else {
-                std::memcpy(header_bytes.data() + 7, &shared_base_u32, sizeof(shared_base_u32));
+                std::memcpy(header_bytes.data() + CMD_MEM_DST_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
             }
         } else {
-            std::memcpy(header_bytes.data() + 2, &shared_base_u32, sizeof(shared_base_u32));
+            std::memcpy(header_bytes.data() + CMD_KERNEL_HOST_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
         }
     }
     std::cout << "Submitting command (id=" << static_cast<int>(header_bytes[0])
