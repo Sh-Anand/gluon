@@ -11,7 +11,18 @@ use cyclotron::sim::config::MemConfig;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
 use serde::Deserialize;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
+
+const HOST_PID_PATH: &str = ".gluon_host_pid";
+
+fn host_pid() -> Option<libc::pid_t> {
+    static HOST_PID: OnceLock<Option<libc::pid_t>> = OnceLock::new();
+    *HOST_PID.get_or_init(|| {
+        std::fs::read_to_string(HOST_PID_PATH)
+            .ok()
+            .and_then(|s| s.trim().parse::<libc::pid_t>().ok())
+    })
+}
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
@@ -192,9 +203,19 @@ impl Clocked for GLUG {
                 DMADir::D2H => {
                     let dram = self.dram.read().expect("gmem poisoned");
                     let data = dram.read(dma_req.src_addr as usize, dma_req.sz as usize).expect("gmem read errored");
-                    data.iter().enumerate().for_each(|(idx, byte)| unsafe {
-                        *((dma_req.target_addr as u32 + idx as u32) as *mut u8) = *byte;
-                    });
+                    if let Some(pid) = host_pid() {
+                        let local = libc::iovec {
+                            iov_base: data.as_ptr() as *mut libc::c_void,
+                            iov_len: data.len(),
+                        };
+                        let remote = libc::iovec {
+                            iov_base: dma_req.target_addr as usize as *mut libc::c_void,
+                            iov_len: data.len(),
+                        };
+                        unsafe {
+                            let _ = libc::process_vm_writev(pid, &local, 1, &remote, 1, 0);
+                        }
+                    }
                 }
             };
 

@@ -250,9 +250,6 @@ std::optional<std::string> driver::SubmitCommand(const std::vector<std::uint8_t>
         if (header_bytes[CMD_CMD_TYPE_OFFSET] == radCmdType_MEM) {
             if (header_bytes[CMD_MEM_DIR_OFFSET] == radMemCpyDir_H2D) {
                 std::memcpy(header_bytes.data() + CMD_MEM_SRC_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
-
-            } else {
-                std::memcpy(header_bytes.data() + CMD_MEM_DST_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
             }
         } else {
             std::memcpy(header_bytes.data() + CMD_KERNEL_HOST_ADDR_OFFSET, &shared_base_u64, sizeof(shared_base_u64));
