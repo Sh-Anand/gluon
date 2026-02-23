@@ -91,6 +91,7 @@ pub struct DMAReq {
     pub src_addr: u64,
     pub target_addr: u64,
     pub sz: u32,
+    pub host_runtime: bool,
     pub done: bool,
 }
 

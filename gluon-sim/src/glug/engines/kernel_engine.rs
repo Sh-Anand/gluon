@@ -285,6 +285,7 @@ impl Clocked for KernelEngine {
                         .expect("Unreachable:Kernel command not set")
                         .gpu_addr as u64;
                     dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").sz;
+                    dma_req.host_runtime = false;
                     self.dma_req = Some(dma_req);
                     info!(
                         self.logger,

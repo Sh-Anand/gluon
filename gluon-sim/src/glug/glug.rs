@@ -22,6 +22,7 @@ pub struct GLUGConfig {
     pub engine: EngineConfig,
     pub gluls: Vec<GLULConfig>,
     pub host_pid: i32,
+    pub driver_pid: i32,
     pub gluon_log_level: u64,
     pub muon_log_level: u64,
 }
@@ -43,6 +44,7 @@ pub struct GLUG {
 
     logger: Arc<Logger>,
     host_pid: libc::pid_t,
+    driver_pid: libc::pid_t,
 }
 
 impl GLUG {
@@ -101,6 +103,7 @@ impl Configurable<GLUGConfig> for GLUG {
             dram,
             logger,
             host_pid: config.host_pid,
+            driver_pid: config.driver_pid,
         }
     }
 }
@@ -186,9 +189,21 @@ impl Clocked for GLUG {
                 DMADir::H2D => {
                     let mut dram = self.dram.write().expect("gmem poisoned");
 
-                    let data = (0..dma_req.sz)
-                        .map(|byte| unsafe { *((dma_req.src_addr + byte as u64) as *const u8) })
-                        .collect::<Vec<u8>>();
+                    let mut data = vec![0u8; dma_req.sz as usize];
+                    let read_pid = if dma_req.host_runtime { self.host_pid } else { self.driver_pid };
+                    if read_pid > 0 {
+                        let mut local = libc::iovec {
+                            iov_base: data.as_mut_ptr() as *mut libc::c_void,
+                            iov_len: data.len(),
+                        };
+                        let remote = libc::iovec {
+                            iov_base: dma_req.src_addr as usize as *mut libc::c_void,
+                            iov_len: data.len(),
+                        };
+                        unsafe {
+                            let _ = libc::process_vm_readv(read_pid, &mut local, 1, &remote, 1, 0);
+                        }
+                    }
                     dram.write(dma_req.target_addr as usize, &data).expect("gmem write errored");
                 }
 

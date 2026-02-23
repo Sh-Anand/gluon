@@ -211,6 +211,7 @@ impl Clocked for MemEngine {
                     src_addr: copy_cmd.src,
                     target_addr: copy_cmd.dst,
                     sz: copy_cmd.len,
+                    host_runtime: true,
                     done: false,
                 });
                 self.state = MemEngineState::C1;

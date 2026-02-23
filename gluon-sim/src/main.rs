@@ -2,10 +2,8 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::path::Path;
 use std::sync::Arc;
-use std::collections::VecDeque;
 
 use gluon::common::base::Configurable;
 use gluon::common::base::{Clocked, Command};
@@ -23,9 +21,6 @@ use gluon::glug::engines::mem_engine::MemEngineConfig;
 use gluon::glug::intake::IntakeConfig;
 use gluon::glug::glug::GLUGConfig;
 use gluon::top::{SimConfig, Top, TopConfig};
-
-mod shared_memory;
-use shared_memory::SharedMemoryRegion;
 
 const DEFAULT_CONFIG_PATH: &str = "config.toml";
 
@@ -83,82 +78,18 @@ fn load_config(path: &str) -> Result<Config, Box<dyn Error>> {
     Ok(config)
 }
 
-fn recv_command(socket_fd: RawFd) -> io::Result<([u8; 24], Option<(OwnedFd, usize)>)> {
-    const CMSG_BUFFER_LEN: usize =
-        unsafe { libc::CMSG_SPACE(std::mem::size_of::<RawFd>() as u32) as usize };
-
-    let mut data_buf = [0u8; 24];
-    let mut cmsg_buffer = [0u8; CMSG_BUFFER_LEN];
-    let mut iov = libc::iovec {
-        iov_base: data_buf.as_mut_ptr().cast(),
-        iov_len: data_buf.len(),
-    };
-    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
-    msg.msg_iov = &mut iov;
-    msg.msg_iovlen = 1;
-    msg.msg_control = cmsg_buffer.as_mut_ptr().cast();
-    msg.msg_controllen = cmsg_buffer.len();
-
-    let received = unsafe { libc::recvmsg(socket_fd, &mut msg, libc::MSG_WAITALL) };
-    if received < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if received == 0 {
-        return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "socket closed"));
-    }
-
-    let mut fd_base = None;
-    let mut cmsg = unsafe { libc::CMSG_FIRSTHDR(&msg) };
-    while !cmsg.is_null() {
-        let hdr = unsafe { &*cmsg };
-        if hdr.cmsg_level == libc::SOL_SOCKET && hdr.cmsg_type == libc::SCM_RIGHTS {
-            let data = unsafe { libc::CMSG_DATA(cmsg) as *const RawFd };
-            if !data.is_null() {
-                let fd = unsafe { *data };
-                let base_u64 = match data_buf[1] {
-                    0 => u64::from_le_bytes(data_buf[2..10].try_into().unwrap()),
-                    1 => {
-                        if data_buf[23] == 0 {
-                            u64::from_le_bytes(data_buf[3..11].try_into().unwrap())
-                        } else {
-                            u64::from_le_bytes(data_buf[11..19].try_into().unwrap())
-                        }
-                    }
-                    _ => 0,
-                };
-                fd_base = Some((unsafe { OwnedFd::from_raw_fd(fd) }, base_u64 as usize));
-            }
-        }
-        cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
-    }
-
-    Ok((data_buf, fd_base))
-}
-
 async fn enqueue_command(
-    stream: OwnedReadHalf,
+    mut stream: OwnedReadHalf,
     addr: SocketAddr,
     top: Arc<Mutex<Top>>,
-    active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
 ) -> tokio::io::Result<()> {
     loop {
-        stream.readable().await?;
-        let (buffer, fd_base) = match recv_command(stream.as_ref().as_raw_fd()) {
-            Ok(v) => v,
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock || err.kind() == io::ErrorKind::Interrupted => {
-                continue;
-            }
+        let mut buffer = [0u8; 24];
+        match stream.read_exact(&mut buffer).await {
+            Ok(_) => {}
             Err(_) => {
                 println!("Client closed connection: {addr:?}");
                 return Ok(());
-            }
-        };
-        if let Some((fd, base)) = fd_base {
-            let region = SharedMemoryRegion::from_owned_fd(fd, base)?;
-            let sid = buffer[0] as usize;
-            let mut guard = active_regions.lock().await;
-            if sid < guard.len() {
-                guard[sid].push_back(region);
             }
         }
         let command = Command::from_bytes(buffer);
@@ -181,7 +112,6 @@ async fn tick_sim(top: Arc<Mutex<Top>>) -> tokio::io::Result<()> {
 async fn dequeue_completion(
     mut stream: OwnedWriteHalf,
     top: Arc<Mutex<Top>>,
-    active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
 ) -> tokio::io::Result<()> {
     loop {
         if let Some(event) = {
@@ -189,11 +119,6 @@ async fn dequeue_completion(
             top_guard.get_completion()
         } {
             stream.write_all(event.bytes.as_slice()).await?;
-            let sid = event.sid() as usize;
-            let mut guard = active_regions.lock().await;
-            if sid < guard.len() {
-                let _ = guard[sid].pop_front();
-            }
             println!("Sent completion: {:?}", event);
         }
         tokio::task::yield_now().await;
@@ -229,12 +154,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Ok((mut stream, addr)) => {
             println!("Client connected: {addr:?}");
 
-            let mut host_pid_bytes = [0u8; 4];
-            stream.read_exact(&mut host_pid_bytes).await?;
-            top_config.glug.host_pid = i32::from_le_bytes(host_pid_bytes);
+            let mut pid_bytes = [0u8; 8];
+            stream.read_exact(&mut pid_bytes).await?;
+            top_config.glug.host_pid = i32::from_le_bytes(pid_bytes[0..4].try_into().unwrap());
+            top_config.glug.driver_pid = i32::from_le_bytes(pid_bytes[4..8].try_into().unwrap());
 
             let top = Arc::new(Mutex::new(Top::new(&top_config)));
-            let active_regions = Arc::new(Mutex::new((0..256).map(|_| VecDeque::new()).collect::<Vec<_>>()));
 
             let (read_half, write_half) = stream.into_split();
 
@@ -244,13 +169,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 read_half,
                 addr,
                 Arc::clone(&top),
-                Arc::clone(&active_regions),
             ));
             let h2 = tokio::task::spawn(tick_sim(Arc::clone(&top)));
             let h3 = tokio::task::spawn(dequeue_completion(
                 write_half,
                 Arc::clone(&top),
-                Arc::clone(&active_regions),
             ));
             let _ = tokio::join!(h1, h2, h3);
         }

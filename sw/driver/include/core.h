@@ -49,7 +49,7 @@ struct HWStream {
 
 void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* params_data);
 
-void MemCpy(MemCpyReq* req, void* h2d_data);
+void MemCpy(MemCpyReq* req);
 
 uint32_t GPUMalloc(uint32_t bytes);
 

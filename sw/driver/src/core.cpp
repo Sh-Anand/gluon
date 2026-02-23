@@ -13,6 +13,7 @@
 
 static std::vector<radStream> streams = {0};
 static std::vector<HWStream> hw_streams = std::vector<HWStream>(HW_STREAM_COUNT, HWStream{0, 0});
+static std::vector<std::vector<void*>> host_ptrs = std::vector<std::vector<void*>>(HW_STREAM_COUNT);
 static uint8_t curr_hw_stream = 1;
 static std::mutex core_mu;
 
@@ -133,23 +134,20 @@ void KernelLaunch(KernelLaunchReq* req, const char* kernel_name, const uint8_t* 
     std::vector<uint8_t> header_bytes(CMD_KERNEL_HEADER_SIZE, 0);
     header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
     header_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_KERNEL;
-    write_u64_le(header_bytes.data() + CMD_KERNEL_HOST_ADDR_OFFSET, 0);
-    write_u32_le(header_bytes.data() + CMD_KERNEL_SZ_OFFSET, static_cast<std::uint32_t>(payload_size));
+    write_u64_le(header_bytes.data() + CMD_KERNEL_HOST_ADDR_OFFSET, (uint64_t)(uintptr_t)(payload.get()));
+    write_u32_le(header_bytes.data() + CMD_KERNEL_SZ_OFFSET, (uint32_t)(payload_size));
     write_u32_le(header_bytes.data() + CMD_KERNEL_GPU_ADDR_OFFSET, kernel_payload_addr);
     (void)driver::SubmitCommand(header_bytes, payload.get(), payload_size);
+    host_ptrs[streams[req->stream]].push_back(payload.release());
 }
 
 // TODO: memcpy way way too hacky
-void MemCpy(MemCpyReq* req, void* h2d_data) {
+void MemCpy(MemCpyReq* req) {
     std::lock_guard<std::mutex> lock(core_mu);
     uint64_t src_addr = (uint64_t)(uintptr_t)(req->src_addr);
     uint64_t dst_addr = (uint64_t)(uintptr_t)(req->dst_addr);
     void* aux_ptr = (void*)(uintptr_t)(req->dst_addr);
     size_t aux_size = 0;
-    if (req->dir == radMemCpyDir_H2D) {
-        aux_ptr = h2d_data;
-        aux_size = req->bytes;
-    }
     hw_streams[streams[req->stream]].tail_cmd_id++;
 
     // hack to keep interface reusable
@@ -162,6 +160,7 @@ void MemCpy(MemCpyReq* req, void* h2d_data) {
     write_u32_le(header_bytes.data() + CMD_MEM_LEN_OFFSET, req->bytes); // 4 bytes
     header_bytes[CMD_MEM_DIR_OFFSET] = req->dir; // 1 byte
     (void)driver::SubmitCommand(header_bytes, aux_ptr, aux_size);
+    host_ptrs[streams[req->stream]].push_back(nullptr);
 }
 
 uint32_t GPUMalloc(uint32_t bytes) {
@@ -199,7 +198,13 @@ bool GetError() {
         return false;
 
     std::lock_guard<std::mutex> lock(core_mu);
-    hw_streams[response->at(0)].head_cmd_id++;
+    uint8_t sid = response->at(0);
+    hw_streams[sid].head_cmd_id++;
+    if (!host_ptrs[sid].empty()) {
+        void* host_ptr = host_ptrs[sid].front();
+        host_ptrs[sid].erase(host_ptrs[sid].begin());
+        delete[] (uint8_t*)host_ptr;
+    }
     return true;
 }
 

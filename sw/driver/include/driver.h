@@ -15,8 +15,4 @@ std::optional<std::string> SubmitCommand(const std::vector<std::uint8_t>& header
 std::optional<std::string> ReceiveError();
 }
 
-void* GetSharedMemoryBase();
-void* GetLastSharedMemoryBase();
-void ReleaseSharedMemoryBase(void* addr);
-
 #endif

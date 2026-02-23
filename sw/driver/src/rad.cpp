@@ -97,10 +97,8 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
     req.bytes = (uint32_t)(bytes);
     req.dir = dir;
 
-    std::vector<uint8_t> payload(sizeof(req) + (dir == radMemCpyDir_H2D ? bytes : 0));
+    std::vector<uint8_t> payload(sizeof(req));
     std::memcpy(payload.data(), &req, sizeof(req));
-    if (dir == radMemCpyDir_H2D)
-        std::memcpy(payload.data() + sizeof(req), src, bytes);
 
     std::vector<uint8_t> resp;
     (void)rpc_call(OP_MEMCPY, payload.data(), (uint32_t)(payload.size()), &resp);
