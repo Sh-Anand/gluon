@@ -67,6 +67,7 @@ struct SharedMemoryRegion {
 struct ConnectionState {
     bool initialized = false;
     int sock = -1;
+    uint32_t host_pid = 0;
     std::vector<SharedMemoryRegion> retained;
     void* last_shared_addr = nullptr;
 };
@@ -167,6 +168,11 @@ bool InitConnection() {
         return false;
     }
     state.sock = sock;
+    if (!WriteFull(state.sock, &state.host_pid, sizeof(state.host_pid))) {
+        ::close(state.sock);
+        state.sock = -1;
+        return false;
+    }
     state.initialized = true;
     static bool registered = false;
     if (!registered) {
@@ -320,7 +326,6 @@ void ReleaseSharedMemoryBase(void* addr) {
 }
 
 constexpr const char* kDriverSocketPath = "./rad-driver.sock";
-constexpr const char* kHostPidPath = "./.gluon_host_pid";
 
 int main() {
     ::unlink(kDriverSocketPath);
@@ -394,14 +399,17 @@ int main() {
                 break;
         } else if (h.op == OP_SET_HOST_PID) {
             uint32_t pid = *(uint32_t*)req.data();
-            FILE* f = std::fopen(kHostPidPath, "w");
-            if (!f) {
-                if (!SendResp(cli, -1, nullptr, 0))
-                    break;
-                continue;
+            {
+                std::lock_guard<std::mutex> lock(GetStateMutex());
+                GetState().host_pid = pid;
+                if (GetState().initialized && GetState().sock != -1) {
+                    if (!WriteFull(GetState().sock, &GetState().host_pid, sizeof(GetState().host_pid))) {
+                        if (!SendResp(cli, -1, nullptr, 0))
+                            break;
+                        continue;
+                    }
+                }
             }
-            std::fprintf(f, "%u\n", pid);
-            std::fclose(f);
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
         } else {

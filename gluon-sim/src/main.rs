@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use gluon::common::base::Configurable;
 use gluon::common::base::{Clocked, Command};
 use serde::Deserialize;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::unix::OwnedReadHalf;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{unix::SocketAddr, UnixListener};
@@ -28,12 +28,6 @@ mod shared_memory;
 use shared_memory::SharedMemoryRegion;
 
 const DEFAULT_CONFIG_PATH: &str = "config.toml";
-const HOST_PID_PATH: &str = ".gluon_host_pid";
-
-fn load_host_pid() -> Option<i32> {
-    let s = fs::read_to_string(HOST_PID_PATH).ok()?;
-    s.trim().parse::<i32>().ok()
-}
 
 #[derive(Deserialize)]
 struct Config {
@@ -147,7 +141,6 @@ async fn enqueue_command(
     top: Arc<Mutex<Top>>,
     active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
 ) -> tokio::io::Result<()> {
-    let mut _host_pid: Option<i32> = None;
     loop {
         stream.readable().await?;
         let (buffer, fd_base) = match recv_command(stream.as_ref().as_raw_fd()) {
@@ -160,9 +153,6 @@ async fn enqueue_command(
                 return Ok(());
             }
         };
-        if _host_pid.is_none() {
-            _host_pid = load_host_pid();
-        }
         if let Some((fd, base)) = fd_base {
             let region = SharedMemoryRegion::from_owned_fd(fd, base)?;
             let sid = buffer[0] as usize;
@@ -216,11 +206,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .unwrap_or_else(|| DEFAULT_CONFIG_PATH.to_string());
     let config = load_config(&config_path)?;
-    let (server_config, top_config) = config.into_server_and_top();
+    let (server_config, mut top_config) = config.into_server_and_top();
     let socket_path = server_config.socket_path;
-
-    let top = Arc::new(Mutex::new(Top::new(&top_config)));
-    let active_regions = Arc::new(Mutex::new((0..256).map(|_| VecDeque::new()).collect::<Vec<_>>()));
 
     if Path::new(&socket_path).exists() {
         fs::remove_file(&socket_path)?;
@@ -239,8 +226,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Server listening on {socket_path}");
 
     match listener.accept().await {
-        Ok((stream, addr)) => {
+        Ok((mut stream, addr)) => {
             println!("Client connected: {addr:?}");
+
+            let mut host_pid_bytes = [0u8; 4];
+            stream.read_exact(&mut host_pid_bytes).await?;
+            top_config.glug.host_pid = i32::from_le_bytes(host_pid_bytes);
+
+            let top = Arc::new(Mutex::new(Top::new(&top_config)));
+            let active_regions = Arc::new(Mutex::new((0..256).map(|_| VecDeque::new()).collect::<Vec<_>>()));
 
             let (read_half, write_half) = stream.into_split();
 
