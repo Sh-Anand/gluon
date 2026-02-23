@@ -166,7 +166,7 @@ void radEventRecord(radEvent_t* event, radStream_t stream) {
     event->cmd_id = r->cmd_id;
 }
 
-void radWaitEvent(radEvent_t* event, radStream_t stream) {
+void radStreamWaitEvent(radEvent_t* event, radStream_t stream) {
     if (event == nullptr)
         return;
 

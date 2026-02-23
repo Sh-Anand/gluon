@@ -31,8 +31,8 @@ int main() {
     radKernelLaunch("plus_3", grid, block, &params_two, s2);
     radEventRecord(&e2, s2);
 
-    radWaitEvent(&e1, s2);
-    radWaitEvent(&e2, s1);
+    radStreamWaitEvent(&e1, s2);
+    radStreamWaitEvent(&e2, s1);
 
     radKernelLaunch("plus_3", grid, block, &params_one, s1);
     radKernelLaunch("times_2", grid, block, &params_two, s2);
