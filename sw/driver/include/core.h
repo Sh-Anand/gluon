@@ -14,6 +14,19 @@ typedef uint8_t radStream;
 #define CMD_MEM_CMD_TYPE_OFFSET 2
 #define CMD_MEMCPY_DIR_OFFSET 15
 
+enum radCmdType {
+    radCmdType_KERNEL,
+    radCmdType_MEM,
+    radCmdType_CSR,
+    radCmdType_WAIT,
+    radCmdType_UNDEFINED,
+};
+
+enum radMemCmdType {
+    radMemCmdType_COPY,
+    radMemCmdType_SET,
+};
+
 struct HWStream {
     uint64_t head_cmd_id;
     uint64_t tail_cmd_id;

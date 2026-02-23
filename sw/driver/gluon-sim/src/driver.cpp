@@ -1,7 +1,6 @@
 #include "driver.h"
 #include "rad.h"
-#include "command.hpp"
-#include "core.hpp"
+#include "core.h"
 #include "rad_rpc.hpp"
 
 #include <sys/mman.h>

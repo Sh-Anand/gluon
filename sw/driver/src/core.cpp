@@ -1,6 +1,5 @@
-#include "core.hpp"
+#include "core.h"
 
-#include "command.hpp"
 #include "driver.h"
 #include "loader.hpp"
 #include "mem.hpp"
