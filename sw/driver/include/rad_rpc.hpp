@@ -16,8 +16,7 @@ enum Op : uint32_t {
     OP_MEMCPY = 4,
     OP_EVENT_RECORD = 5,
     OP_WAIT_EVENT = 6,
-    OP_GET_ERROR = 7,
-    OP_SYNC = 8,
+    OP_SYNC = 7,
 };
 
 struct MsgHeader {
@@ -78,13 +77,6 @@ struct WaitEventReq {
 struct SyncReq {
     radStream_t stream;
     uint64_t cmd_id;
-};
-
-struct GetErrorResp {
-    uint64_t stream;
-    uint32_t err_code;
-    uint32_t pc;
-    uint32_t d2h_bytes;
 };
 
 inline bool WriteFull(int fd, const void* data, size_t len) {

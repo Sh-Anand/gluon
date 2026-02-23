@@ -15,9 +15,7 @@ int main() {
     printf("Copying to GPU Memory\n");
     radMemCpy(x_ptr, &x, sizeof(x), radMemCpyDir_H2D);
     radMemCpy(y_ptr, &x, sizeof(x), radMemCpyDir_H2D);
-    radError err;
-    radGetError(&err);
-    radGetError(&err);
+    radStreamSynchronize();
 
     radDim3 grid = {1, 1, 1};
     radDim3 block = {1, 1, 1};
@@ -39,14 +37,8 @@ int main() {
     int a, b;
     radMemCpy(&a, x_ptr, sizeof(a), radMemCpyDir_D2H, s1);
     radMemCpy(&b, y_ptr, sizeof(b), radMemCpyDir_D2H, s2);
-
-    // hack because error reporting is currently broken
-    radGetError(&err, s1);
-    radGetError(&err, s2);
-    radGetError(&err, s1);
-    radGetError(&err, s2);
-    radGetError(&err, s1);
-    radGetError(&err, s2);
+    radStreamSynchronize(s1);
+    radStreamSynchronize(s2);
 
     printf("Received host final results: %d, %d\n", a, b);    
 }

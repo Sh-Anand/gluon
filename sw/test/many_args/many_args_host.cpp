@@ -19,10 +19,6 @@ int main() {
     params.push(11);
     params.push(12);
     radKernelLaunch("hello_args_kernel", grid, block, &params);
-    radError err;
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
-    printf("PC: %d\n", err.pc);
+    radStreamSynchronize();
     return 0;
 }

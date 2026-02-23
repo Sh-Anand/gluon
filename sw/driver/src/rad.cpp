@@ -8,7 +8,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <deque>
 #include <string>
 #include <vector>
 
@@ -16,25 +15,13 @@ namespace {
 
 constexpr const char* kRuntimeSocketPath = "./rad-driver.sock";
 
-struct PendingD2H {
-    void* dst;
-    uint32_t bytes;
-};
-
 struct RuntimeState {
     int sock = -1;
-    std::vector<std::deque<PendingD2H>> pending_d2h;
 };
 
 RuntimeState& State() {
     static RuntimeState s;
     return s;
-}
-
-void EnsurePendingSize(uint64_t stream) {
-    auto& p = State().pending_d2h;
-    if (p.size() <= stream)
-        p.resize(stream + 1);
 }
 
 bool connect_driver() {
@@ -111,10 +98,6 @@ void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t
     std::memcpy(payload.data(), &req, sizeof(req));
     if (dir == radMemCpyDir_H2D)
         std::memcpy(payload.data() + sizeof(req), src, bytes);
-    else {
-        EnsurePendingSize(stream);
-        State().pending_d2h[stream].push_back(PendingD2H{dst, static_cast<uint32_t>(bytes)});
-    }
 
     std::vector<uint8_t> resp;
     (void)rpc_call(radrpc::OP_MEMCPY, payload.data(), static_cast<uint32_t>(payload.size()), &resp);
@@ -135,11 +118,6 @@ void radMalloc(void **ptr, size_t bytes) {
     *ptr = reinterpret_cast<void*>(static_cast<std::uintptr_t>(r->addr));
 }
 
-void radGetError(radError *err, radStream_t stream) {
-    (void)err;
-    (void)stream;
-}
-
 void radCreateStream(radStream_t* stream) {
     if (stream == nullptr)
         return;
@@ -149,7 +127,6 @@ void radCreateStream(radStream_t* stream) {
 
     auto* r = reinterpret_cast<const radrpc::CreateStreamResp*>(resp.data());
     *stream = r->stream;
-    EnsurePendingSize(*stream);
 }
 
 void radEventRecord(radEvent_t* event, radStream_t stream) {

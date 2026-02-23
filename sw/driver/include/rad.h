@@ -16,20 +16,9 @@ struct radDim3 {
     unsigned int z;
 };
 
-enum radErrorCode {
-    radError_NONE,
-    radError_EXECUTION,
-};
-
 enum radMemCpyDir {
     radMemCpyDir_H2D,
     radMemCpyDir_D2H,
-};
-
-struct radError {
-    radErrorCode err_code;
-    uint8_t cmd_id;
-    uint32_t pc;
 };
 
 struct radParamBuf {
@@ -83,8 +72,6 @@ void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_di
 void radMemCpy(void *dst, void *src, size_t bytes, radMemCpyDir dir, radStream_t stream = 0);
 
 void radMalloc(void **ptr, size_t bytes);
-
-void radGetError(radError *err, radStream_t stream = 0);
 
 void radCreateStream(radStream_t* stream);
 

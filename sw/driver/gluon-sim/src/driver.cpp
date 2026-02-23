@@ -354,8 +354,7 @@ int main() {
 
     std::thread([] {
         for (;;) {
-            core::CompletionResult out{};
-            if (!core::GetError(&out))
+            if (!core::GetError())
                 ::usleep(1000);
         }
     }).detach();
@@ -419,9 +418,6 @@ int main() {
                 .stream = w->stream,
                 .event = w->event,
             });
-            if (!radrpc::SendResp(cli, 0, nullptr, 0))
-                break;
-        } else if (h.op == radrpc::OP_GET_ERROR) {
             if (!radrpc::SendResp(cli, 0, nullptr, 0))
                 break;
         } else if (h.op == radrpc::OP_SYNC) {

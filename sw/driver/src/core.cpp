@@ -221,9 +221,9 @@ void WaitEvent(const WaitEventReq& req) {
     (void)rad::SubmitCommand(header_bytes, nullptr, 0);
 }
 
-bool GetError(CompletionResult* out) {
+bool GetError() {
     auto response = rad::ReceiveError();
-    if (!response || !out)
+    if (!response)
         return false;
 
     std::lock_guard<std::mutex> lock(core_mu);
@@ -233,22 +233,12 @@ bool GetError(CompletionResult* out) {
     if (!command)
         return false;
 
-    out->stream = stream;
-    out->err_code = static_cast<radErrorCode>(response->at(1));
-    out->pc = static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(2))) |
-        (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(3))) << 8) |
-        (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(4))) << 16) |
-        (static_cast<uint32_t>(static_cast<std::uint8_t>(response->at(5))) << 24);
-    out->d2h_bytes.clear();
-
     if (command->cmd_type == radCmdType_MEM) {
         CopyCommand* copy_command = static_cast<CopyCommand*>(command);
         if (copy_command->d2h) {
             void *shared_mem_base = copy_command->shared_addr;
             if (!shared_mem_base)
                 return false;
-            uint8_t* src_addr = reinterpret_cast<uint8_t *>(shared_mem_base);
-            out->d2h_bytes.assign(src_addr, src_addr + copy_command->size);
             rad::ReleaseSharedMemoryBase(shared_mem_base);
         }
     }

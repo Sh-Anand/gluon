@@ -8,10 +8,7 @@ int main() {
     radMalloc(&x_ptr, 12);
     printf("Copying to GPU memory\n");
     radMemCpy(x_ptr, x, 8, radMemCpyDir_H2D);
-    radError err;
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
+    radStreamSynchronize();
     
     printf("Launching kernel\n");
     radDim3 grid = {1, 1, 1};
@@ -24,16 +21,11 @@ int main() {
     params.push(y_ptr);
     params.push(z_ptr);
     radKernelLaunch("hello_mem_kernel", grid, block, &params);
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
-    printf("PC: 0x%x\n", err.pc);
+    radStreamSynchronize();
 
     int z;
     radMemCpy(&z, z_ptr, 4, radMemCpyDir_D2H);
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
+    radStreamSynchronize();
     printf("Host received: %d\n", z);
     return 0;
 }

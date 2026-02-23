@@ -5,7 +5,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 namespace core {
 
@@ -32,13 +31,6 @@ struct WaitEventReq {
     radEvent_t event;
 };
 
-struct CompletionResult {
-    uint64_t stream;
-    radErrorCode err_code;
-    uint32_t pc;
-    std::vector<uint8_t> d2h_bytes;
-};
-
 struct SyncReq {
     uint64_t stream;
     uint64_t cmd_id;
@@ -56,7 +48,7 @@ uint64_t EventRecord(radStream_t stream);
 
 void WaitEvent(const WaitEventReq& req);
 
-bool GetError(CompletionResult* out);
+bool GetError();
 
 void Synchronize(const SyncReq& req);
 

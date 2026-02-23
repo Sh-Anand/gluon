@@ -13,17 +13,11 @@ int main() {
     memset(src, 5, bytes);
     radMemCpy(dst, src, bytes, radMemCpyDir_H2D);
     free(src);
-
-    radError err;
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
+    radStreamSynchronize();
     
     void *ptr = malloc(bytes);
     radMemCpy(ptr, dst, bytes, radMemCpyDir_D2H);
-    radGetError(&err);
-    printf("Error: %d\n", err.err_code);
-    printf("Command ID: %d\n", err.cmd_id);
+    radStreamSynchronize();
 
     for (size_t i = 0; i < bytes; i++) {
         printf("%d ", ((char *)ptr)[i]);
