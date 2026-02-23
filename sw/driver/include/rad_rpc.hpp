@@ -16,6 +16,7 @@ enum Op : uint32_t {
     OP_EVENT_RECORD = 5,
     OP_WAIT_EVENT = 6,
     OP_SYNC = 7,
+    OP_SET_HOST_PID = 8,
 };
 
 struct MsgHeader {

@@ -11,6 +11,7 @@
 #include <array>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <iostream>
@@ -322,6 +323,7 @@ void ReleaseSharedMemoryBase(void* addr) {
 }
 
 constexpr const char* kDriverSocketPath = "./rad-driver.sock";
+constexpr const char* kHostPidPath = "./.gluon_host_pid";
 
 int main() {
     ::unlink(kDriverSocketPath);
@@ -391,6 +393,18 @@ int main() {
                 break;
         } else if (h.op == OP_SYNC) {
             Synchronize((SyncReq*)req.data());
+            if (!SendResp(cli, 0, nullptr, 0))
+                break;
+        } else if (h.op == OP_SET_HOST_PID) {
+            uint32_t pid = *(uint32_t*)req.data();
+            FILE* f = std::fopen(kHostPidPath, "w");
+            if (!f) {
+                if (!SendResp(cli, -1, nullptr, 0))
+                    break;
+                continue;
+            }
+            std::fprintf(f, "%u\n", pid);
+            std::fclose(f);
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
         } else {

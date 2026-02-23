@@ -28,6 +28,12 @@ mod shared_memory;
 use shared_memory::SharedMemoryRegion;
 
 const DEFAULT_CONFIG_PATH: &str = "config.toml";
+const HOST_PID_PATH: &str = ".gluon_host_pid";
+
+fn load_host_pid() -> Option<i32> {
+    let s = fs::read_to_string(HOST_PID_PATH).ok()?;
+    s.trim().parse::<i32>().ok()
+}
 
 #[derive(Deserialize)]
 struct Config {
@@ -141,6 +147,7 @@ async fn enqueue_command(
     top: Arc<Mutex<Top>>,
     active_regions: Arc<Mutex<Vec<VecDeque<SharedMemoryRegion>>>>,
 ) -> tokio::io::Result<()> {
+    let mut _host_pid: Option<i32> = None;
     loop {
         stream.readable().await?;
         let (buffer, fd_base) = match recv_command(stream.as_ref().as_raw_fd()) {
@@ -153,6 +160,9 @@ async fn enqueue_command(
                 return Ok(());
             }
         };
+        if _host_pid.is_none() {
+            _host_pid = load_host_pid();
+        }
         if let Some((fd, base)) = fd_base {
             let region = SharedMemoryRegion::from_owned_fd(fd, base)?;
             let sid = buffer[0] as usize;

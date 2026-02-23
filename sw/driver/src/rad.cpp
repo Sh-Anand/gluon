@@ -42,6 +42,13 @@ bool connect_driver() {
     }
 
     st.sock = sock;
+    uint32_t pid = static_cast<uint32_t>(::getpid());
+    std::vector<uint8_t> resp;
+    if (!Call(st.sock, OP_SET_HOST_PID, &pid, sizeof(pid), &resp)) {
+        ::close(st.sock);
+        st.sock = -1;
+        return false;
+    }
     return true;
 }
 
