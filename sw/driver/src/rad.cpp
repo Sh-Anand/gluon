@@ -136,30 +136,8 @@ void radMalloc(void **ptr, size_t bytes) {
 }
 
 void radGetError(radError *err, radStream_t stream) {
-    if (err == nullptr)
-        return;
-
-    radrpc::StreamReq req{stream};
-    std::vector<uint8_t> resp;
-    if (!rpc_call(radrpc::OP_GET_ERROR, &req, sizeof(req), &resp) || resp.size() < sizeof(radrpc::GetErrorResp))
-        return;
-
-    auto* r = reinterpret_cast<const radrpc::GetErrorResp*>(resp.data());
-    err->err_code = static_cast<radErrorCode>(r->err_code);
-    err->pc = r->pc;
-
-    if (r->d2h_bytes > 0) {
-        EnsurePendingSize(r->stream);
-        auto& q = State().pending_d2h[r->stream];
-        if (!q.empty()) {
-            PendingD2H p = q.front();
-            q.pop_front();
-            uint32_t n = r->d2h_bytes;
-            if (n > p.bytes)
-                n = p.bytes;
-            std::memcpy(p.dst, resp.data() + sizeof(radrpc::GetErrorResp), n);
-        }
-    }
+    (void)err;
+    (void)stream;
 }
 
 void radCreateStream(radStream_t* stream) {

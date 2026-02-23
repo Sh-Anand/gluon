@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <memory>
 #include <new>
 
@@ -26,7 +27,9 @@ static std::vector<radStream> streams = [] {
     return v;
 }();
 static std::vector<uint64_t> hw_stream_cmd_ids = std::vector<uint64_t>(HW_STREAM_COUNT, 0);
+static std::vector<uint64_t> hw_stream_done_ids = std::vector<uint64_t>(HW_STREAM_COUNT, 0);
 static uint8_t curr_hw_stream = 1;
+static std::mutex core_mu;
 
 void write_u32_le(std::uint8_t* dst, std::uint32_t value) {
     for (int i = 0; i < 4; i++) {
@@ -92,6 +95,7 @@ private:
 namespace core {
 
 void KernelLaunch(const KernelLaunchReq& req) {
+    std::lock_guard<std::mutex> lock(core_mu);
     ELFLoader *loader = new ELFLoader("sw/test/build/kernel.elf");
 
     size_t payload_size = KERNEL_HEADER_MEM_END + req.params_size + loader->size;
@@ -156,6 +160,7 @@ void KernelLaunch(const KernelLaunchReq& req) {
 }
 
 void MemCpy(const MemCpyReq& req) {
+    std::lock_guard<std::mutex> lock(core_mu);
     void *src_addr = nullptr;
     void *dst_addr = nullptr;
     const void *payload_addr = nullptr;
@@ -187,11 +192,13 @@ void MemCpy(const MemCpyReq& req) {
 }
 
 uint32_t Malloc(uint64_t bytes) {
+    std::lock_guard<std::mutex> lock(core_mu);
     auto device_addr = allocateDeviceMemory(bytes);
     return device_addr ? *device_addr : 0;
 }
 
 uint64_t CreateStream() {
+    std::lock_guard<std::mutex> lock(core_mu);
     streams.emplace_back(curr_hw_stream++);
     uint64_t stream = streams.size() - 1;
     curr_hw_stream %= HW_STREAM_COUNT;
@@ -199,6 +206,7 @@ uint64_t CreateStream() {
 }
 
 radEvent_t EventRecord(radStream_t stream) {
+    std::lock_guard<std::mutex> lock(core_mu);
     radEvent_t event{};
     event.hw_sid = streams[stream].hw_sid;
     event.cmd_id = hw_stream_cmd_ids[streams[stream].hw_sid];
@@ -206,6 +214,7 @@ radEvent_t EventRecord(radStream_t stream) {
 }
 
 void WaitEvent(const WaitEventReq& req) {
+    std::lock_guard<std::mutex> lock(core_mu);
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = streams[req.stream].hw_sid;
     header_bytes[1] = radCmdType_WAIT;
@@ -219,7 +228,9 @@ bool GetError(CompletionResult* out) {
     if (!response || !out)
         return false;
 
+    std::lock_guard<std::mutex> lock(core_mu);
     uint64_t stream = static_cast<uint8_t>(response->at(0));
+    hw_stream_done_ids[stream]++;
     Command* command = streams[stream].commands.front().get();
     if (!command)
         return false;

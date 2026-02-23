@@ -19,6 +19,8 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #include <toml.hpp>
@@ -77,6 +79,11 @@ struct ConnectionState {
 ConnectionState& GetState() {
     static ConnectionState state;
     return state;
+}
+
+std::mutex& GetStateMutex() {
+    static std::mutex mu;
+    return mu;
 }
 
 std::optional<std::string> LoadSocketPath() {
@@ -193,54 +200,13 @@ static bool CreateRegion(SharedMemoryRegion& region, std::size_t size) {
         region.Reset();
         return false;
     }
-    region.addr = MAP_FAILED;
-#ifdef MAP_FIXED_NOREPLACE
-    {
-        constexpr std::uintptr_t kPreferredBases[] = {
-            0x10000000u,
-            0x20000000u,
-            0x30000000u,
-            0x40000000u,
-        };
-        for (std::uintptr_t base : kPreferredBases) {
-            void* desired = reinterpret_cast<void*>(base);
-            void* mapped = ::mmap(
-                desired,
-                region.size,
-                PROT_READ | PROT_WRITE,
-                MAP_SHARED | MAP_FIXED_NOREPLACE,
-                region.fd,
-                0);
-            if (mapped != MAP_FAILED) {
-                region.addr = mapped;
-                break;
-            }
-        }
-    }
-#endif
-#ifdef MAP_32BIT
-    if (region.addr == MAP_FAILED) {
-        void* mapped = ::mmap(
-            nullptr,
-            region.size,
-            PROT_READ | PROT_WRITE,
-            MAP_SHARED | MAP_32BIT,
-            region.fd,
-            0);
-        if (mapped != MAP_FAILED) {
-            region.addr = mapped;
-        }
-    }
-#endif
-    if (region.addr == MAP_FAILED) {
-        region.addr = ::mmap(
-            nullptr,
-            region.size,
-            PROT_READ | PROT_WRITE,
-            MAP_SHARED,
-            region.fd,
-            0);
-    }
+    region.addr = ::mmap(
+        nullptr,
+        region.size,
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED,
+        region.fd,
+        0);
     if (region.addr == MAP_FAILED) {
         region.Reset();
         return false;
@@ -251,15 +217,20 @@ static bool CreateRegion(SharedMemoryRegion& region, std::size_t size) {
 std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& header,
                                          const void* payload,
                                          std::size_t payload_size) {
-    ConnectionState& state = GetState();
-    if (!state.initialized) {
-        if (!InitConnection()) {
-            std::cerr << "Failed to initialize connection\n";
-            return std::nullopt;
-        }
+    bool initialized = false;
+    std::unique_lock<std::mutex> lock(GetStateMutex());
+    initialized = GetState().initialized;
+    lock.unlock();
+    if (!initialized && !InitConnection()) {
+        std::cerr << "Failed to initialize connection\n";
+        return std::nullopt;
     }
-    std::array<std::uint8_t, 16> header_bytes = header;
+    ConnectionState& state = GetState();
+    lock.lock();
     state.last_shared_addr = nullptr;
+    int sock = state.sock;
+    lock.unlock();
+    std::array<std::uint8_t, 16> header_bytes = header;
     SharedMemoryRegion region;
     bool use_region = false;
     bool retain_region = false;
@@ -295,15 +266,17 @@ std::optional<std::string> SubmitCommand(const std::array<std::uint8_t, 16>& hea
     std::cout << "Submitting command (id=" << static_cast<int>(header_bytes[0])
               << ", size=" << payload_size
               << ")\n";
-    if (!SendCommand(state.sock, header_bytes, use_region ? region.fd : -1)) {
+    if (!SendCommand(sock, header_bytes, use_region ? region.fd : -1)) {
         return std::nullopt;
     }
     if (use_region) {
         void* addr = region.addr;
+        lock.lock();
         state.retained.push_back(std::move(region));
         if (retain_region) {
             state.last_shared_addr = addr;
         }
+        lock.unlock();
     }
     return std::string("OK");
 }
@@ -313,8 +286,9 @@ std::optional<std::string> ReceiveError() {
     if (!state.initialized) {
         return std::nullopt;
     }
+    int sock = state.sock;
     char buffer[16] = {0};
-    ssize_t received = ::recv(state.sock, buffer, sizeof(buffer), MSG_WAITALL);
+    ssize_t received = ::recv(sock, buffer, sizeof(buffer), MSG_WAITALL);
     if (received == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return std::nullopt;
@@ -337,10 +311,12 @@ void* GetSharedMemoryBase() {
 }
 
 void* GetLastSharedMemoryBase() {
+    std::lock_guard<std::mutex> lock(GetStateMutex());
     return GetState().last_shared_addr;
 }
 
 void ReleaseSharedMemoryBase(void* addr) {
+    std::lock_guard<std::mutex> lock(GetStateMutex());
     auto& retained = GetState().retained;
     for (std::size_t i = 0; i < retained.size(); ++i) {
         if (retained[i].addr == addr) {
@@ -375,6 +351,14 @@ int main() {
     int cli = ::accept(srv, nullptr, nullptr);
     if (cli == -1)
         return 1;
+
+    std::thread([] {
+        for (;;) {
+            core::CompletionResult out{};
+            if (!core::GetError(&out))
+                ::usleep(1000);
+        }
+    }).detach();
 
     for (;;) {
         radrpc::MsgHeader h{};
@@ -442,22 +426,7 @@ int main() {
             if (!radrpc::SendResp(cli, 0, nullptr, 0))
                 break;
         } else if (h.op == radrpc::OP_GET_ERROR) {
-            core::CompletionResult out{};
-            if (!core::GetError(&out)) {
-                if (!radrpc::SendResp(cli, -1, nullptr, 0))
-                    break;
-                continue;
-            }
-            radrpc::GetErrorResp resp{};
-            resp.stream = out.stream;
-            resp.err_code = static_cast<uint32_t>(out.err_code);
-            resp.pc = out.pc;
-            resp.d2h_bytes = static_cast<uint32_t>(out.d2h_bytes.size());
-            std::vector<uint8_t> payload(sizeof(resp) + out.d2h_bytes.size());
-            std::memcpy(payload.data(), &resp, sizeof(resp));
-            if (!out.d2h_bytes.empty())
-                std::memcpy(payload.data() + sizeof(resp), out.d2h_bytes.data(), out.d2h_bytes.size());
-            if (!radrpc::SendResp(cli, 0, payload.data(), static_cast<uint32_t>(payload.size())))
+            if (!radrpc::SendResp(cli, 0, nullptr, 0))
                 break;
         } else {
             if (!radrpc::SendResp(cli, -1, nullptr, 0))
