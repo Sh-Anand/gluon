@@ -12,8 +12,8 @@ int main() {
     void *src = malloc(bytes);
     memset(src, 5, bytes);
     radMemCpy(dst, src, bytes, radMemCpyDir_H2D);
-    free(src);
     radStreamSynchronize();
+    free(src);
     
     void *ptr = malloc(bytes);
     radMemCpy(ptr, dst, bytes, radMemCpyDir_D2H);
