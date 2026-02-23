@@ -67,20 +67,16 @@ struct StreamReq {
 };
 
 struct EventResp {
-    uint8_t hw_sid;
-    uint8_t _pad[7];
     uint64_t cmd_id;
 };
 
 struct WaitEventReq {
     uint64_t stream;
-    uint8_t hw_sid;
-    uint8_t _pad[7];
-    uint64_t cmd_id;
+    radEvent_t event;
 };
 
 struct SyncReq {
-    uint64_t stream;
+    radStream_t stream;
     uint64_t cmd_id;
 };
 

@@ -29,8 +29,7 @@ struct MemCpyReq {
 
 struct WaitEventReq {
     radStream_t stream;
-    uint8_t hw_sid;
-    uint64_t cmd_id;
+    radEvent_t event;
 };
 
 struct CompletionResult {
@@ -53,7 +52,7 @@ uint32_t Malloc(uint64_t bytes);
 
 uint64_t CreateStream();
 
-radEvent_t EventRecord(radStream_t stream);
+uint64_t EventRecord(radStream_t stream);
 
 void WaitEvent(const WaitEventReq& req);
 

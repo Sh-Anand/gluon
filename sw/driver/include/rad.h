@@ -74,7 +74,7 @@ struct radParamBuf {
 typedef uint64_t radStream_t;
 
 struct radEvent_t {
-    uint8_t hw_sid;
+    radStream_t stream;
     uint64_t cmd_id;
 };
 

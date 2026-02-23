@@ -206,12 +206,9 @@ uint64_t CreateStream() {
     return stream;
 }
 
-radEvent_t EventRecord(radStream_t stream) {
+uint64_t EventRecord(radStream_t stream) {
     std::lock_guard<std::mutex> lock(core_mu);
-    radEvent_t event{};
-    event.hw_sid = streams[stream].hw_sid;
-    event.cmd_id = hw_stream_cmd_ids[streams[stream].hw_sid];
-    return event;
+    return hw_stream_cmd_ids[streams[stream].hw_sid];
 }
 
 void WaitEvent(const WaitEventReq& req) {
@@ -219,8 +216,8 @@ void WaitEvent(const WaitEventReq& req) {
     std::array<std::uint8_t, 16> header_bytes{};
     header_bytes[0] = streams[req.stream].hw_sid;
     header_bytes[1] = radCmdType_WAIT;
-    header_bytes[2] = req.hw_sid;
-    write_u64_le(header_bytes.data() + 3, req.cmd_id);
+    header_bytes[2] = streams[req.event.stream].hw_sid;
+    write_u64_le(header_bytes.data() + 3, req.event.cmd_id);
     (void)rad::SubmitCommand(header_bytes, nullptr, 0);
 }
 
@@ -262,10 +259,19 @@ bool GetError(CompletionResult* out) {
 
 void Synchronize(const SyncReq& req) {
     uint64_t wait_cmd;
-    if (req.cmd_id == 0) wait_cmd = hw_stream_cmd_ids[streams[req.stream].hw_sid];
-    else wait_cmd = req.cmd_id;
+    {
+        std::lock_guard<std::mutex> lock(core_mu);
+        if (req.cmd_id == 0) wait_cmd = hw_stream_cmd_ids[streams[req.stream].hw_sid];
+        else wait_cmd = req.cmd_id;
+    }
 
-    while (hw_stream_done_ids[streams[req.stream].hw_sid] < wait_cmd) std::this_thread::yield();
+    while (true) {
+        {
+            std::lock_guard<std::mutex> lock(core_mu);
+            if (hw_stream_done_ids[streams[req.stream].hw_sid] >= wait_cmd) break;
+        }
+        std::this_thread::yield();
+    }
 }
 
 } // namespace core

@@ -410,18 +410,14 @@ int main() {
                 break;
         } else if (h.op == radrpc::OP_EVENT_RECORD) {
             auto* s = reinterpret_cast<const radrpc::StreamReq*>(req.data());
-            radEvent_t ev = core::EventRecord(s->stream);
-            radrpc::EventResp resp{};
-            resp.hw_sid = ev.hw_sid;
-            resp.cmd_id = ev.cmd_id;
+            radrpc::EventResp resp{core::EventRecord(s->stream)};
             if (!radrpc::SendResp(cli, 0, &resp, sizeof(resp)))
                 break;
         } else if (h.op == radrpc::OP_WAIT_EVENT) {
             auto* w = reinterpret_cast<const radrpc::WaitEventReq*>(req.data());
             core::WaitEvent(core::WaitEventReq{
                 .stream = w->stream,
-                .hw_sid = w->hw_sid,
-                .cmd_id = w->cmd_id,
+                .event = w->event,
             });
             if (!radrpc::SendResp(cli, 0, nullptr, 0))
                 break;
