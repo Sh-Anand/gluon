@@ -40,6 +40,11 @@ struct CompletionResult {
     std::vector<uint8_t> d2h_bytes;
 };
 
+struct SyncReq {
+    uint64_t stream;
+    uint64_t cmd_id;
+};
+
 void KernelLaunch(const KernelLaunchReq& req);
 
 void MemCpy(const MemCpyReq& req);
@@ -53,6 +58,8 @@ radEvent_t EventRecord(radStream_t stream);
 void WaitEvent(const WaitEventReq& req);
 
 bool GetError(CompletionResult* out);
+
+void Synchronize(const SyncReq& req);
 
 } // namespace core
 

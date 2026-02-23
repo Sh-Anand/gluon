@@ -12,6 +12,7 @@
 #include <mutex>
 #include <memory>
 #include <new>
+#include <thread>
 
 namespace {
 
@@ -257,6 +258,14 @@ bool GetError(CompletionResult* out) {
 
     streams[stream].commands.erase(streams[stream].commands.begin());
     return true;
+}
+
+void Synchronize(const SyncReq& req) {
+    uint64_t wait_cmd;
+    if (req.cmd_id == 0) wait_cmd = hw_stream_cmd_ids[streams[req.stream].hw_sid];
+    else wait_cmd = req.cmd_id;
+
+    while (hw_stream_done_ids[streams[req.stream].hw_sid] < wait_cmd) std::this_thread::yield();
 }
 
 } // namespace core

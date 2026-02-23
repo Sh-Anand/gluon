@@ -166,6 +166,17 @@ void radEventRecord(radEvent_t* event, radStream_t stream) {
     event->cmd_id = r->cmd_id;
 }
 
+void radEventSynchronize(radEvent_t* event) {
+    if (event == nullptr)
+        return;
+
+    radrpc::SyncReq req{};
+    req.stream = event->hw_sid;
+    req.cmd_id = event->cmd_id;
+    std::vector<uint8_t> resp;
+    (void)rpc_call(radrpc::OP_SYNC, &req, sizeof(req), &resp);
+}
+
 void radStreamWaitEvent(radEvent_t* event, radStream_t stream) {
     if (event == nullptr)
         return;
@@ -176,4 +187,12 @@ void radStreamWaitEvent(radEvent_t* event, radStream_t stream) {
     req.cmd_id = event->cmd_id;
     std::vector<uint8_t> resp;
     (void)rpc_call(radrpc::OP_WAIT_EVENT, &req, sizeof(req), &resp);
+}
+
+void radStreamSynchronize(radStream_t stream) {
+    radrpc::SyncReq req{};
+    req.stream = stream;
+    req.cmd_id = 0;
+    std::vector<uint8_t> resp;
+    (void)rpc_call(radrpc::OP_SYNC, &req, sizeof(req), &resp);
 }

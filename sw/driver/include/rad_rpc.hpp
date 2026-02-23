@@ -17,6 +17,7 @@ enum Op : uint32_t {
     OP_EVENT_RECORD = 5,
     OP_WAIT_EVENT = 6,
     OP_GET_ERROR = 7,
+    OP_SYNC = 8,
 };
 
 struct MsgHeader {
@@ -75,6 +76,11 @@ struct WaitEventReq {
     uint64_t stream;
     uint8_t hw_sid;
     uint8_t _pad[7];
+    uint64_t cmd_id;
+};
+
+struct SyncReq {
+    uint64_t stream;
     uint64_t cmd_id;
 };
 

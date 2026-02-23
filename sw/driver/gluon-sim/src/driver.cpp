@@ -428,6 +428,14 @@ int main() {
         } else if (h.op == radrpc::OP_GET_ERROR) {
             if (!radrpc::SendResp(cli, 0, nullptr, 0))
                 break;
+        } else if (h.op == radrpc::OP_SYNC) {
+            auto* s = reinterpret_cast<const radrpc::SyncReq*>(req.data());
+            core::Synchronize(core::SyncReq{
+                .stream = s->stream,
+                .cmd_id = s->cmd_id,
+            });
+            if (!radrpc::SendResp(cli, 0, nullptr, 0))
+                break;
         } else {
             if (!radrpc::SendResp(cli, -1, nullptr, 0))
                 break;
