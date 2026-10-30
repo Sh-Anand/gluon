@@ -213,10 +213,11 @@ impl GLUL {
             smem_size: config.shmem,
             lane_config: LaneConfig::default(),
         };
+        let shared_mem = Arc::new(RwLock::new(FlatMemory::new_with_size(config.shmem, None)));
         GLUL {
             status: GLULStatus::new(&config),
             cores: (0..config.num_cores)
-                .map(|i| (MuonCore::new(Arc::new(muon_config), glul_id, i, &muon_logger, dram.clone()), false))
+                .map(|i| (MuonCore::new(Arc::new(muon_config), glul_id, i, &muon_logger, dram.clone(), shared_mem.clone()), false))
                 .collect(),
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
             logger: gluon_logger,
