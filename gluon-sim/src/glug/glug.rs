@@ -253,6 +253,12 @@ impl Clocked for GLUG {
         });
 
         // Tick stream
+        if let Some(cmd) = self.stream.sqs[self.sq_idx].q.peek() && cmd.is_wait() {
+            let (w_sid, w_cid) = cmd.get_wait_ids();
+            if self.stream.sqs[w_sid as usize].cmd_id >= w_cid {
+                self.stream.sqs[self.sq_idx].q.pop();
+            }
+        }
         self.sq_idx = (self.sq_idx + 1) % self.stream.sqs.len();
         let decode_push_candidates = self.stream.sqs
             .iter()
