@@ -155,7 +155,7 @@ impl Clocked for GLUL {
                             "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
                         );
                         let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
-                    core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp);
+                    core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp, tb_idx as u32 * thread_blocks.shmem);
                         core.1 = true;
                     });
                 });
