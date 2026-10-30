@@ -18,7 +18,7 @@ int main() {
     params.push(10);
     params.push(11);
     params.push(12);
-    radKernelLaunch("hello_args_kernel", grid, block, &params);
+    radKernelLaunch("hello_args_kernel", grid, block, 0, &params);
     radStreamSynchronize();
     return 0;
 }

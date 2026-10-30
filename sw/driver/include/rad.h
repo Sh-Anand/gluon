@@ -67,7 +67,7 @@ struct radEvent_t {
     uint64_t cmd_id;
 };
 
-void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, radParamBuf* params, radStream_t stream = 0);
+void radKernelLaunch(const char *kernel_name, radDim3 grid_dim, radDim3 block_dim, uint32_t smem_bytes, radParamBuf* params, radStream_t stream = 0);
 
 void radMemcpyAsync(void *dst, void *src, size_t bytes, radMemcpyDir dir, radStream_t stream = 0);
 

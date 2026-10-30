@@ -111,7 +111,7 @@ void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data) {
         !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.z)) ||
         !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
         !writer.write_u8(KERNEL_REGS_PER_THREAD) ||
-        !writer.write_u32(KERNEL_SMEM_PER_BLOCK) ||
+        !writer.write_u32(req->smem_bytes) ||
         !writer.write_u8(KERNEL_FLAGS) ||
         !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
         !writer.write_block(params_data, req->params_size) ||

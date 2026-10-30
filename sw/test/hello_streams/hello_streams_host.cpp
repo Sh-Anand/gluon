@@ -24,16 +24,16 @@ int main() {
     params_two.push(y_ptr);
 
     radEvent_t e1, e2;
-    radKernelLaunch("times_2", grid, block, &params_one, s1);
+    radKernelLaunch("times_2", grid, block, 0, &params_one, s1);
     radEventRecord(&e1, s1);
-    radKernelLaunch("plus_3", grid, block, &params_two, s2);
+    radKernelLaunch("plus_3", grid, block, 0, &params_two, s2);
     radEventRecord(&e2, s2);
 
     radStreamWaitEvent(&e1, s2);
     radStreamWaitEvent(&e2, s1);
 
-    radKernelLaunch("plus_3", grid, block, &params_one, s1);
-    radKernelLaunch("times_2", grid, block, &params_two, s2);
+    radKernelLaunch("plus_3", grid, block, 0, &params_one, s1);
+    radKernelLaunch("times_2", grid, block, 0, &params_two, s2);
     int a, b;
     radMemcpyAsync(&a, x_ptr, sizeof(a), radMemcpyDir_D2H, s1);
     radMemcpyAsync(&b, y_ptr, sizeof(b), radMemcpyDir_D2H, s2);

@@ -7,7 +7,7 @@ int main() {
     radDim3 block = {1, 4, 4};
     radParamBuf params;
     params.push(1);
-    radKernelLaunch("hello_except_kernel", grid, block, &params);
+    radKernelLaunch("hello_except_kernel", grid, block, 0, &params);
     radStreamSynchronize();
     return 0;
 }

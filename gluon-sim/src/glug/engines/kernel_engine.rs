@@ -340,19 +340,15 @@ impl Clocked for KernelEngine {
                             let glul_cfg = glul.config;
                             let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
                             let cores_per_tb = (warps_per_tb as f32 / glul_cfg.num_warps as f32).ceil() as usize;
-                            (
-                                idx,
-                                (glul_cfg.num_cores
-                                    / cores_per_tb).min(
-                                        glul_cfg.regs_per_core * glul_cfg.num_cores
-                                            / (self.kernel_payload.regs_per_thread as usize
-                                                * glul_cfg.num_lanes)
-                                                .min(
-                                                    glul_cfg.shmem
-                                                        / self.kernel_payload.shmem_per_block as usize,
-                                                ),
-                                    ),
-                            )
+                            let core_limit = glul_cfg.num_cores / cores_per_tb;
+                            let reg_limit = glul_cfg.regs_per_core * glul_cfg.num_cores
+                                / (self.kernel_payload.regs_per_thread as usize * glul_cfg.num_lanes);
+                            // 0 bytes of smem per block places no limit
+                            let shmem_limit = match self.kernel_payload.shmem_per_block {
+                                0 => usize::MAX,
+                                shmem => glul_cfg.shmem / shmem as usize,
+                            };
+                            (idx, core_limit.min(reg_limit).min(shmem_limit))
                         })
                         .filter(|(_, value)| *value > 0)
                         .min_by_key(|(_, value)| *value)

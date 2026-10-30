@@ -22,7 +22,7 @@ int main() {
     params_one.push(y_ptr);
     params_one.push(z_ptr);
     params_one.push(w_ptr);
-    radKernelLaunch("hello_first_kernel", grid, block, &params_one);
+    radKernelLaunch("hello_first_kernel", grid, block, 0, &params_one);
     radStreamSynchronize();
 
     void *second_ptr;
@@ -31,7 +31,7 @@ int main() {
     params_two.push(z_ptr);
     params_two.push(w_ptr);
     params_two.push(second_ptr);
-    radKernelLaunch("hello_second_kernel", grid, block, &params_two);
+    radKernelLaunch("hello_second_kernel", grid, block, 0, &params_two);
     radStreamSynchronize();
 
     int u;

@@ -20,7 +20,7 @@ int main() {
     params.push(x_ptr);
     params.push(y_ptr);
     params.push(z_ptr);
-    radKernelLaunch("hello_mem_kernel", grid, block, &params);
+    radKernelLaunch("hello_mem_kernel", grid, block, 0, &params);
     radStreamSynchronize();
 
     int z;

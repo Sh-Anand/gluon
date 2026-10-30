@@ -65,6 +65,7 @@ bool rpc_call(uint32_t op, const void* payload, uint32_t payload_size, std::vect
 void radKernelLaunch(const char *kernel_name,
                      radDim3 grid_dim,
                      radDim3 block_dim,
+                     uint32_t smem_bytes,
                      radParamBuf* params,
                      radStream_t stream) {
     static ELFLoader *loader = nullptr;
@@ -81,6 +82,7 @@ void radKernelLaunch(const char *kernel_name,
     req.stream = stream;
     req.grid_dim = grid_dim;
     req.block_dim = block_dim;
+    req.smem_bytes = smem_bytes;
     req.params_size = params_len;
     req.start_pc = loader->getSymbolAddress("_start");
     req.kernel_pc = loader->getSymbolAddress(kernel_name);
