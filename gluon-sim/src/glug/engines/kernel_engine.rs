@@ -342,7 +342,7 @@ impl Clocked for KernelEngine {
                             let cores_per_tb = (warps_per_tb as f32 / glul_cfg.num_warps as f32).ceil() as usize;
                             let core_limit = glul_cfg.num_cores / cores_per_tb;
                             let reg_limit = glul_cfg.regs_per_core * glul_cfg.num_cores
-                                / (self.kernel_payload.regs_per_thread as usize * glul_cfg.num_lanes);
+                                / (self.kernel_payload.regs_per_thread as usize);
                             // 0 bytes of smem per block places no limit
                             let shmem_limit = match self.kernel_payload.shmem_per_block {
                                 0 => usize::MAX,
