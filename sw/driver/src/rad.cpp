@@ -83,6 +83,7 @@ void radKernelLaunch(const char *kernel_name,
     req.grid_dim = grid_dim;
     req.block_dim = block_dim;
     req.smem_bytes = smem_bytes;
+    req.regs = loader->getKernelRegs(kernel_name);
     req.params_size = params_len;
     req.start_pc = loader->getSymbolAddress("_start");
     req.kernel_pc = loader->getSymbolAddress(kernel_name);

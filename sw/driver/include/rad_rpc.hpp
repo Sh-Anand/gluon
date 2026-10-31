@@ -34,6 +34,7 @@ struct KernelLaunchReq {
     radDim3 grid_dim;
     radDim3 block_dim;
     uint32_t smem_bytes;
+    uint8_t regs;
     uint32_t params_size;
     uint32_t start_pc;
     uint32_t kernel_pc;

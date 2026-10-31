@@ -3,6 +3,7 @@
 
 #include <elfio/elfio.hpp>
 
+#include <bitset>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,8 @@
 #include <cstring>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 using namespace ELFIO;
 
@@ -23,6 +26,9 @@ public:
     uint32_t gpu_addr;
     uint8_t* binary_data;
     size_t size;
+    std::unordered_map<uint32_t, std::bitset<128>> fn_regs;      // func -> GPRs it writes (.rad.regs)
+    std::unordered_map<uint32_t, std::vector<uint32_t>> fn_refs; // func -> symbols it references (.rad.refs)
+    std::unordered_map<std::string, uint8_t> kernel_regs;
 
     ELFLoader() : elf_min_vaddr(0), binary_data(nullptr), size(0) {}
 
@@ -40,6 +46,28 @@ public:
         assert(it != elf_symbol_map.end() && "symbol not found");
         uint32_t addr = it->second - elf_min_vaddr;
         return gpu_addr + addr;
+    }
+
+    // rename regs a warp allocates: GPRs written by everything reachable from _start and the kernel
+    uint8_t getKernelRegs(const std::string& kernel_name) {
+        auto cached = kernel_regs.find(kernel_name);
+        if (cached != kernel_regs.end())
+            return cached->second;
+        std::bitset<128> used;
+        std::unordered_set<uint32_t> seen;
+        std::vector<uint32_t> work{elf_symbol_map.at("_start"), elf_symbol_map.at(kernel_name)};
+        while (!work.empty()) {
+            uint32_t fn = work.back();
+            work.pop_back();
+            // refs to data or local labels have no regs entry
+            if (!fn_regs.count(fn) || !seen.insert(fn).second)
+                continue;
+            used |= fn_regs[fn];
+            for (uint32_t ref : fn_refs[fn])
+                work.push_back(ref);
+        }
+        used.reset(0); // x0 is preassigned but still takes an entry
+        return kernel_regs[kernel_name] = used.count() + 1;
     }
 
     void parseELF(const std::string& elf_path) {
@@ -76,6 +104,23 @@ public:
         size = total_size;
         binary_data = data;
         elf_min_vaddr = min_vaddr;
+
+        // non-alloc sections from the muon toolchain, resolved to link-time addresses
+        auto words = [&](const char* name) {
+            std::vector<uint32_t> w;
+            if (const section* sec = reader.sections[name]) {
+                w.resize(sec->get_size() / 4);
+                memcpy(w.data(), sec->get_data(), w.size() * 4);
+            }
+            return w;
+        };
+        std::vector<uint32_t> regs = words(".rad.regs"); // {func, mask[4]}
+        for (size_t i = 0; i + 5 <= regs.size(); i += 5)
+            for (int j = 0; j < 4; ++j)
+                fn_regs[regs[i]] |= std::bitset<128>(regs[i + 1 + j]) << (32 * j);
+        std::vector<uint32_t> refs = words(".rad.refs"); // {from, to}
+        for (size_t i = 0; i + 2 <= refs.size(); i += 2)
+            fn_refs[refs[i]].push_back(refs[i + 1]);
     }
 
     // also builds symbol cache
