@@ -56,9 +56,31 @@ pub struct GLULReq {
 }
 
 #[derive(Default, Debug, Clone)]
+pub struct GLULResources {
+    pub free_smem: usize,
+    pub free_regs: Vec<usize>, // per core
+}
+
+impl GLULResources {
+    fn full(config: &GLULConfig) -> Self {
+        GLULResources {
+            free_smem: config.shmem,
+            free_regs: vec![config.regs_per_core; config.num_cores],
+        }
+    }
+
+    // warps of `regs` each that fit on every core
+    pub fn warps_per_core(&self, config: &GLULConfig, regs: usize) -> usize {
+        let min_free = self.free_regs.iter().copied().min().unwrap_or(0);
+        config.num_warps.min(min_free / regs.max(1))
+    }
+}
+
+#[derive(Default, Debug, Clone)]
 pub struct GLULStatus {
     pub config: GLULConfig,
     pub busy: Arc<RwLock<bool>>,
+    pub res: Arc<RwLock<GLULResources>>,
 }
 
 impl Configurable<GLULConfig> for GLULStatus {
@@ -66,6 +88,7 @@ impl Configurable<GLULConfig> for GLULStatus {
         GLULStatus {
             config: config.clone(),
             busy: Arc::new(RwLock::new(false)),
+            res: Arc::new(RwLock::new(GLULResources::full(config))),
         }
     }
 }
@@ -115,7 +138,10 @@ impl Clocked for GLUL {
                 } else {
                     remaining_threads
                 };
-                let cores_per_tb = (warps_per_tb as f32 / self.status.config.num_warps as f32).ceil() as usize;
+                let mut res = self.status.res.write().expect("GLUL res poisoned");
+                let regs = thread_blocks.regs as usize;
+                let max_warps_per_core = res.warps_per_core(&self.status.config, regs);
+                let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
                 let warps_per_core = warps_per_tb / cores_per_tb as u32;
                 let mut thread_idx = (0, 0, 0);
                 debug!(
@@ -157,8 +183,11 @@ impl Clocked for GLUL {
                         let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
                     core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp, tb_idx as u32 * thread_blocks.shmem);
                         core.1 = true;
+                        res.free_regs[core_idx] -= warps_per_core as usize * regs;
                     });
+                    res.free_smem -= thread_blocks.shmem as usize;
                 });
+                drop(res);
                 self.state = GLULState::S2;
             }
             GLULState::S2 => {
@@ -184,6 +213,8 @@ impl Clocked for GLUL {
                 self.done = true;
                 self.state = GLULState::S0;
                 self.cores.iter_mut().for_each(|(_, scheduled)| *scheduled = false);
+                // the whole batch has retired, so everything is free again
+                *self.status.res.write().expect("GLUL res poisoned") = GLULResources::full(&self.status.config);
                 *self.status.busy.write().expect("GLUL busy poisoned") = false;
             }
         };
@@ -259,6 +290,7 @@ impl GLUL {
         if self.state != GLULState::S0 && self.engine_idx == engine_idx {
             self.done = false;
             self.state = GLULState::S0;
+            *self.status.res.write().expect("GLUL res poisoned") = GLULResources::full(&self.status.config);
             *self.status.busy.write().expect("GLUL busy poisoned") = false;
         }
     }

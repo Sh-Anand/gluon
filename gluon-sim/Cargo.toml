@@ -14,3 +14,10 @@ cyclotron = {path = "../../cyclotron"}
 
 [lib]
 name = "gluon"
+
+# any sim error kills the process instead of just its tokio task
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

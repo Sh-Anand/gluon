@@ -14,6 +14,7 @@ use crate::glul::glul::GLULStatus;
 use cyclotron::info;
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
+use log::error;
 use serde::Deserialize;
 use std::fmt;
 use std::sync::Arc;
@@ -305,6 +306,12 @@ impl Clocked for KernelEngine {
                         self.tb_size = self.kernel_payload.block.0 as u32
                             * self.kernel_payload.block.1 as u32
                             * self.kernel_payload.block.2 as u32;
+                        // a warp that exceeds an empty core's regs can never launch
+                        let regs = self.kernel_payload.regs_per_thread as usize;
+                        if self.gluls.iter().all(|glul| glul.config.regs_per_core < regs) {
+                            error!("kernel needs {} regs per warp, more than any core has", regs);
+                            return Err(SimErr::EXECUTION);
+                        }
                         self.state = KernelEngineState::S3;
                     }
                 } else {
@@ -338,17 +345,20 @@ impl Clocked for KernelEngine {
                         .filter(|(_, glul)| !*glul.busy.read().expect("GLUL busy poisoned"))
                         .map(|(idx, glul)| {
                             let glul_cfg = glul.config;
+                            let res = glul.res.read().expect("GLUL res poisoned");
+                            let max_warps_per_core = res.warps_per_core(&glul_cfg, self.kernel_payload.regs_per_thread as usize);
+                            if max_warps_per_core == 0 {
+                                return (idx, 0);
+                            }
                             let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
-                            let cores_per_tb = (warps_per_tb as f32 / glul_cfg.num_warps as f32).ceil() as usize;
+                            let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
                             let core_limit = glul_cfg.num_cores / cores_per_tb;
-                            let reg_limit = glul_cfg.regs_per_core * glul_cfg.num_cores
-                                / (self.kernel_payload.regs_per_thread as usize);
                             // 0 bytes of smem per block places no limit
                             let shmem_limit = match self.kernel_payload.shmem_per_block {
                                 0 => usize::MAX,
-                                shmem => glul_cfg.shmem / shmem as usize,
+                                shmem => res.free_smem / shmem as usize,
                             };
-                            (idx, core_limit.min(reg_limit).min(shmem_limit))
+                            (idx, core_limit.min(shmem_limit))
                         })
                         .filter(|(_, value)| *value > 0)
                         .min_by_key(|(_, value)| *value)
