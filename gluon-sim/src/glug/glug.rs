@@ -4,7 +4,7 @@ use crate::glug::dispatch::{Dispatch, DispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::intake::{Intake, IntakeConfig};
 use crate::glug::stream::{Stream, StreamConfig};
-use crate::glul::glul::{GLULConfig, GLUL};
+use crate::sm::{SMConfig, SM};
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
 use cyclotron::sim::config::MemConfig;
@@ -20,7 +20,7 @@ pub struct GLUGConfig {
     pub dispatch: DispatchConfig,
     pub stream: StreamConfig,
     pub engine: EngineConfig,
-    pub gluls: Vec<GLULConfig>,
+    pub sms: Vec<SMConfig>,
     pub host_pid: i32,
     pub driver_pid: i32,
     pub gluon_log_level: u64,
@@ -38,7 +38,7 @@ pub struct GLUG {
     engines: Vec<Box<dyn Engine>>,
     completion: Completion,
 
-    gluls: Vec<GLUL>,
+    sms: Vec<SM>,
 
     dram: Arc<RwLock<FlatMemory>>,
 
@@ -65,7 +65,6 @@ impl GLUG {
 
 impl Configurable<GLUGConfig> for GLUG {
     fn new(config: &GLUGConfig) -> Self {
-        let glul_configs = config.gluls.clone();
         let engine_config = config.engine.clone();
 
         let flat_mem = FlatMemory::new(Some(MemConfig::default()));
@@ -73,11 +72,12 @@ impl Configurable<GLUGConfig> for GLUG {
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
 
-        let gluls = glul_configs
+        let sms = config
+            .sms
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, config)| GLUL::new_with_logger_dram(idx, config, logger.clone(), muon_logger.clone(), dram.clone()))
+            .map(|(idx, config)| SM::new(idx, config, muon_logger.clone(), dram.clone()))
             .collect::<Vec<_>>();
 
         let engines = engine_config.generate_engines(logger.clone());
@@ -91,7 +91,7 @@ impl Configurable<GLUGConfig> for GLUG {
             stream: Stream::new(&config.stream),
             engines,
             completion: Completion::new(&config.stream),
-            gluls,
+            sms,
             dram,
             logger,
             host_pid: config.host_pid,
@@ -104,29 +104,6 @@ impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Report erroring threadid
 
-        // Check GLUL completions, notify engines of completion or error, terminate GLULs of erroring engines
-        self.gluls
-            .iter_mut()
-            .filter_map(|glul| glul.try_acknowledge_done_err())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .for_each(|result| {
-                if let Ok((engine_idx, tbs)) = result {
-                    self.engines
-                        .get_mut(engine_idx)
-                        .expect("Engine idx out of bounds")
-                        .notify_glul_done(tbs);
-                } else if let Err((engine_idx, err)) = result {
-                    self.engines
-                        .get_mut(engine_idx)
-                        .expect("Engine idx out of bounds")
-                        .notify_glul_err(err);
-                    self.gluls
-                        .iter_mut()
-                        .for_each(|glul| glul.try_kill(engine_idx));
-                }
-            });
-
         // Enqueue engine completions
         self.engines.iter_mut().for_each(|engine| {
             if let Some(event) = engine.get_completion() {
@@ -134,14 +111,13 @@ impl Clocked for GLUG {
             }
         });
 
-        // Engines launch thread blocks onto GLULs, in engine order
+        // Engines retire and launch CTAs on SMs, in engine order
         self.engines
             .iter_mut()
-            .enumerate()
-            .try_for_each(|(idx, engine)| engine.launch(&mut self.gluls, idx))?;
+            .try_for_each(|engine| engine.launch(&mut self.sms))?;
 
-        // Tick GLULs
-        self.gluls.iter_mut().try_for_each(|glul| glul.tick())?;
+        // Tick SMs
+        self.sms.iter_mut().for_each(|sm| sm.tick());
 
         // Service Mem requests
         if let Some(engine) = self

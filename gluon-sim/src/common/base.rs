@@ -108,15 +108,6 @@ pub struct MemResp {
     pub data: Option<Vec<u8>>,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct ThreadBlocks {
-    pub pc: u32,
-    pub block_idxs: Vec<(u32, u32, u32)>,
-    pub block_dim: (u32, u32, u32),
-    pub regs: u32,
-    pub shmem: u32,
-    pub bp: u32,
-}
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Event {
     pub bytes: [u8; 16],

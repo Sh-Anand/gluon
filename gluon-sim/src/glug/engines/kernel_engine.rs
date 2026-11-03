@@ -6,10 +6,9 @@ use crate::common::base::Event;
 use crate::common::base::MemReq;
 use crate::common::base::MemResp;
 use crate::common::base::SimErr;
-use crate::common::base::ThreadBlocks;
 use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
-use crate::glul::glul::GLUL;
+use crate::sm::SM;
 use cyclotron::info;
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
@@ -130,6 +129,25 @@ impl KernelPayload {
     }
 }
 
+// a launched CTA and the SM resources it holds
+struct Cta {
+    sm: usize,
+    cores: Vec<(usize, usize)>, // (core, regs held there)
+    smem: usize,
+}
+
+impl Cta {
+    fn free(&self, sms: &mut [SM]) {
+        let sm = &mut sms[self.sm];
+        for &(core, regs) in &self.cores {
+            sm.running[core] = false;
+            sm.errs[core] = None;
+            sm.free_regs[core] += regs;
+        }
+        sm.free_smem += self.smem;
+    }
+}
+
 pub struct KernelEngine {
     cmd: Option<KernelCommand>,
 
@@ -139,11 +157,9 @@ pub struct KernelEngine {
 
     kernel_payload: KernelPayload,
     state: KernelEngineState,
-    tb_size: u32,
     tb_ctr: u32,
     total_tb: u32,
-    tb_done: u32,
-
+    inflight: Vec<Cta>,
 
     err: Option<Result<(), ExecErr>>,
 
@@ -159,13 +175,35 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             mem_resp: None,
             kernel_payload: KernelPayload::default(),
             state: KernelEngineState::S0,
-            tb_size: 0,
             tb_ctr: 0,
             total_tb: 0,
-            tb_done: 0,
+            inflight: vec![],
             err: None,
             logger: Arc::new(Logger::new(0)),
         }
+    }
+}
+
+impl KernelEngine {
+    // free retired CTAs; an error on any core kills the whole kernel
+    fn retire(&mut self, sms: &mut [SM]) {
+        let err = self
+            .inflight
+            .iter()
+            .find_map(|cta| cta.cores.iter().find_map(|&(core, _)| sms[cta.sm].errs[core].clone()));
+        if let Some(err) = err {
+            self.inflight.drain(..).for_each(|cta| cta.free(sms));
+            self.err = Some(Err(err));
+            self.state = KernelEngineState::S5;
+            return;
+        }
+        self.inflight.retain(|cta| {
+            let retired = cta.cores.iter().all(|&(core, _)| sms[cta.sm].cores[core].all_warps_retired());
+            if retired {
+                cta.free(sms);
+            }
+            !retired
+        });
     }
 }
 
@@ -202,83 +240,70 @@ impl Engine for KernelEngine {
         self.mem_resp = data.map(|bytes| MemResp { data: Some(bytes.clone()) });
     }
 
-    fn launch(&mut self, gluls: &mut [GLUL], engine_idx: usize) -> Result<(), SimErr> {
-        if !matches!(self.state, KernelEngineState::S3) {
+    fn launch(&mut self, sms: &mut [SM]) -> Result<(), SimErr> {
+        self.retire(sms);
+        if !matches!(self.state, KernelEngineState::S3) || self.tb_ctr == self.total_tb {
             return Ok(());
         }
+        let p = self.kernel_payload;
+        let regs = p.regs_per_thread as usize;
         // a warp that exceeds an empty core's regs can never launch
-        let regs = self.kernel_payload.regs_per_thread as usize;
-        if gluls.iter().all(|glul| glul.get_status().config.regs_per_core < regs) {
+        if sms.iter().all(|sm| sm.config.regs_per_core < regs) {
             error!("kernel needs {} regs per warp, more than any core has", regs);
             return Err(SimErr::EXECUTION);
         }
-        let available_tbs = self.total_tb - self.tb_ctr;
+        let (bx, by, bz) = p.block;
+        let threads = bx * by * bz;
+        let smem = p.shmem_per_block as usize;
 
-        if available_tbs > 0 {
-            let threads_per_block = self.kernel_payload.block.0 as u32
-                * self.kernel_payload.block.1 as u32
-                * self.kernel_payload.block.2 as u32;
-            if let Some((glul_idx, n_tb)) = gluls
-                .iter()
-                .map(|glul| glul.get_status())
-                .enumerate()
-                .filter(|(_, glul)| !glul.busy)
-                .map(|(idx, glul)| {
-                    let glul_cfg = glul.config;
-                    let res = &glul.res;
-                    let max_warps_per_core = res.warps_per_core(&glul_cfg, self.kernel_payload.regs_per_thread as usize);
-                    if max_warps_per_core == 0 {
-                        return (idx, 0);
-                    }
-                    let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
-                    let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
-                    let core_limit = glul_cfg.num_cores / cores_per_tb;
-                    // 0 bytes of smem per block places no limit
-                    let shmem_limit = match self.kernel_payload.shmem_per_block {
-                        0 => usize::MAX,
-                        shmem => res.free_smem / shmem as usize,
-                    };
-                    (idx, core_limit.min(shmem_limit))
-                })
-                .filter(|(_, value)| *value > 0)
-                .min_by_key(|(_, value)| *value)
-            {
-                let n_tb_req = (n_tb as u32).min(available_tbs);
-                let mut block_idxs = Vec::new();
-                for _ in 0..n_tb_req {
-                    let gx = self.kernel_payload.grid.0;
-                    let gy = self.kernel_payload.grid.1;
-                    let plane = gx * gy;
-                    let block_z = self.tb_ctr / plane;
-                    let rem = self.tb_ctr % plane;
-                    let block_y = rem / gx;
-                    let block_x = rem % gx;
-                    block_idxs.push((block_x, block_y, block_z));
-                    self.tb_ctr += 1;
+        // pick the idle SM that fits the fewest CTAs: (sm, CTAs, warps per core)
+        let Some((sm_idx, n_tb, warps_per_core)) = sms
+            .iter()
+            .enumerate()
+            .filter(|(_, sm)| !sm.running.contains(&true))
+            .filter_map(|(idx, sm)| {
+                let warps_per_core = sm.config.num_warps.min(sm.free_regs.iter().min()? / regs);
+                if warps_per_core == 0 {
+                    return None;
                 }
-                gluls[glul_idx].submit_thread_block(ThreadBlocks {
-                    pc: self.kernel_payload.start_pc,
-                    block_idxs: block_idxs,
-                    block_dim: self.kernel_payload.block,
-                    regs: self.kernel_payload.regs_per_thread as u32,
-                    shmem: self.kernel_payload.shmem_per_block,
-                    bp: self.cmd.expect("Unreachable: Kernel command not set").gpu_addr,
-                }, engine_idx);
-            }
+                let cores_per_tb = (threads as usize).div_ceil(sm.config.num_lanes).div_ceil(warps_per_core);
+                // 0 bytes of smem per block places no limit
+                let smem_limit = sm.free_smem.checked_div(smem).unwrap_or(usize::MAX);
+                let n_tb = (sm.config.num_cores / cores_per_tb).min(smem_limit);
+                (n_tb > 0).then_some((idx, n_tb, warps_per_core))
+            })
+            .min_by_key(|&(_, n_tb, _)| n_tb)
+        else {
+            return Ok(());
+        };
+
+        let sm = &mut sms[sm_idx];
+        // thread idxs grouped into warps, x fastest
+        let thread_idxs: Vec<_> = (0..threads).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
+        let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).map(<[_]>::to_vec).collect();
+        let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
+        let (gx, gy, _) = p.grid;
+        let mut next_core = 0;
+        for tb_idx in 0..n_tb.min((self.total_tb - self.tb_ctr) as usize) {
+            let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
+            self.tb_ctr += 1;
+            // pack the CTA's warps onto consecutive cores, warps_per_core each
+            let cores: Vec<_> = (next_core..)
+                .zip(warps.chunks(warps_per_core))
+                .map(|(core, chunk)| {
+                    let core_regs = chunk.len() * regs;
+                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, chunk.to_vec(), bp, (tb_idx * smem) as u32);
+                    sm.running[core] = true;
+                    sm.free_regs[core] -= core_regs;
+                    (core, core_regs)
+                })
+                .collect();
+            next_core += cores.len();
+            sm.free_smem -= smem;
+            info!(self.logger, "Spawning block_idx {:?} on sm {} cores {:?}", block_idx, sm_idx, cores);
+            self.inflight.push(Cta { sm: sm_idx, cores, smem });
         }
         Ok(())
-    }
-
-    fn notify_glul_done(&mut self, tbs: u32) {
-        assert!(self.tb_done + tbs <= self.total_tb);
-        self.tb_done += tbs;
-    }
-
-    fn notify_glul_err(&mut self, err: ExecErr) {
-        assert_ne!(self.total_tb, 0);
-        assert_ne!(self.tb_ctr, 0);
-        self.state = KernelEngineState::S5;
-        self.err = Some(Err(err));
     }
 
     fn get_completion(&self) -> Option<Event> {
@@ -300,7 +325,6 @@ impl Clocked for KernelEngine {
                 if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
                     self.tb_ctr = 0;
-                    self.tb_done = 0;
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
@@ -316,19 +340,15 @@ impl Clocked for KernelEngine {
                         self.state = KernelEngineState::S2;
                     }
                 } else {
-                    let mut dma_req = DMAReq::default();
-                    dma_req.done = false;
-                    dma_req.dir = DMADir::H2D;
-                    dma_req.src_addr = self
-                        .cmd
-                        .expect("Unreachable:Kernel command not set")
-                        .host_addr;
-                    dma_req.target_addr = self
-                        .cmd
-                        .expect("Unreachable:Kernel command not set")
-                        .gpu_addr as u64;
-                    dma_req.sz = self.cmd.expect("Unreachable:Kernel command not set").sz;
-                    dma_req.host_runtime = false;
+                    let cmd = self.cmd.expect("Unreachable:Kernel command not set");
+                    let dma_req = DMAReq {
+                        dir: DMADir::H2D,
+                        src_addr: cmd.host_addr,
+                        target_addr: cmd.gpu_addr as u64,
+                        sz: cmd.sz,
+                        host_runtime: false,
+                        done: false,
+                    };
                     self.dma_req = Some(dma_req);
                     info!(
                         self.logger,
@@ -346,12 +366,8 @@ impl Clocked for KernelEngine {
                             self.logger,
                             "Received kernel payload: {:?}", self.kernel_payload
                         );
-                        self.total_tb = self.kernel_payload.grid.0 as u32
-                            * self.kernel_payload.grid.1 as u32
-                            * self.kernel_payload.grid.2 as u32;
-                        self.tb_size = self.kernel_payload.block.0 as u32
-                            * self.kernel_payload.block.1 as u32
-                            * self.kernel_payload.block.2 as u32;
+                        let (gx, gy, gz) = self.kernel_payload.grid;
+                        self.total_tb = gx * gy * gz;
                         self.state = KernelEngineState::S3;
                     }
                 } else {
@@ -372,7 +388,7 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S3 => {
-                if self.tb_done == self.total_tb {
+                if self.tb_ctr == self.total_tb && self.inflight.is_empty() {
                     self.state = KernelEngineState::S4;
                 }
             }

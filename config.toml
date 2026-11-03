@@ -9,7 +9,7 @@ timeout_cycles = 0
 gluon_log_level = 2
 muon_log_level = 0
 
-[[glug.gluls]]
+[[glug.sms]]
 id = 0
 num_cores = 4
 num_warps = 4
@@ -17,7 +17,7 @@ num_lanes = 16
 regs_per_core = 256
 shmem = 4096
 
-[[glug.gluls]]
+[[glug.sms]]
 id = 1
 num_cores = 8
 num_warps = 8

@@ -2,7 +2,7 @@ use crate::{
     common::base::{Clocked, CmdType, Configurable, DMADir, DMAReq, Event, MemReq, MemResp, SimErr},
     glug::engine::{Engine, EngineCommand},
 };
-use cyclotron::{info, muon::warp::ExecErr};
+use cyclotron::info;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
 use serde::Deserialize;
@@ -144,15 +144,6 @@ impl Engine for MemEngine {
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>) {
         assert!(data.is_none(), "Mem engine: has issued a read");
         self.mem_resp = Some(MemResp { data: None });
-    }
-
-    fn notify_glul_done(&mut self, _: u32) {
-        panic!("Mem engine: no gluls to notify");
-    }
-
-
-    fn notify_glul_err(&mut self, _: ExecErr) {
-        panic!("Mem engine: no gluls to notify");
     }
 
     fn get_completion(&self) -> Option<Event> {

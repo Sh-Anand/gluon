@@ -2,7 +2,6 @@ use crate::{
     common::base::{Clocked, CmdType, Configurable, Event, SimErr},
     glug::engine::{Engine, EngineCommand},
 };
-use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
 use serde::Deserialize;
@@ -42,15 +41,6 @@ impl Engine for CSEngine {
 
     fn set_mem_resp(&mut self, _: Option<&Vec<u8>>) {
         panic!("CSR engine: cannot set mem resp");
-    }
-
-    fn notify_glul_done(&mut self, _: u32) {
-        panic!("CSR engine: cannot notify glul done");
-    }
-
-
-    fn notify_glul_err(&mut self, _: ExecErr) {
-        panic!("CSR engine: cannot notify glul err");
     }
 
     fn get_completion(&self) -> Option<Event> {

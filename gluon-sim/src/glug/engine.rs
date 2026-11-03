@@ -6,8 +6,7 @@ use crate::glug::engines::{
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
-use crate::glul::glul::GLUL;
-use cyclotron::muon::warp::ExecErr;
+use crate::sm::SM;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
 use serde::Deserialize;
@@ -21,12 +20,10 @@ pub trait Engine: Clocked + Send {
     fn done_dma_req(&mut self);
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
-    // claim GLULs and submit thread blocks, in engine order
-    fn launch(&mut self, _gluls: &mut [GLUL], _engine_idx: usize) -> Result<(), SimErr> {
+    // retire finished CTAs and launch new ones onto SMs, in engine order
+    fn launch(&mut self, _sms: &mut [SM]) -> Result<(), SimErr> {
         Ok(())
     }
-    fn notify_glul_done(&mut self, tbs: u32);
-    fn notify_glul_err(&mut self, err: ExecErr);
     fn get_completion(&self) -> Option<Event>;
 }
 
