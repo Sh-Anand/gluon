@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use cyclotron::{
@@ -43,7 +44,7 @@ pub struct SM {
     pub running: Vec<bool>,          // per core: has warps to tick
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
     pub free_regs: Vec<usize>,       // per core
-    pub free_smem: usize,
+    smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
     neutrino: Neutrino,
 }
 
@@ -67,9 +68,34 @@ impl SM {
             running: vec![false; config.num_cores],
             errs: vec![None; config.num_cores],
             free_regs: vec![config.regs_per_core; config.num_cores],
-            free_smem: config.shmem,
+            smem_used: vec![],
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
         }
+    }
+
+    // first fit: the lowest gap between allocations that holds `len` bytes
+    pub fn alloc_smem(&mut self, len: usize) -> Option<Range<usize>> {
+        if len == 0 {
+            return Some(0..0);
+        }
+        let mut base = 0;
+        let idx = match self.smem_used.iter().position(|used| {
+            let fits = used.start - base >= len;
+            if !fits {
+                base = used.end;
+            }
+            fits
+        }) {
+            Some(idx) => idx,
+            None if self.config.shmem - base >= len => self.smem_used.len(),
+            None => return None,
+        };
+        self.smem_used.insert(idx, base..base + len);
+        Some(base..base + len)
+    }
+
+    pub fn free_smem(&mut self, range: &Range<usize>) {
+        self.smem_used.retain(|used| used != range);
     }
 
     pub fn tick(&mut self) {

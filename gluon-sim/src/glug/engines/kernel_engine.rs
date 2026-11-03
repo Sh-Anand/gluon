@@ -15,6 +15,7 @@ use cyclotron::sim::log::Logger;
 use log::error;
 use serde::Deserialize;
 use std::fmt;
+use std::ops::Range;
 use std::sync::Arc;
 
 pub enum KernelEngineState {
@@ -133,7 +134,7 @@ impl KernelPayload {
 struct Cta {
     sm: usize,
     cores: Vec<(usize, usize)>, // (core, regs held there)
-    smem: usize,
+    smem: Range<usize>,
 }
 
 impl Cta {
@@ -144,7 +145,7 @@ impl Cta {
             sm.errs[core] = None;
             sm.free_regs[core] += regs;
         }
-        sm.free_smem += self.smem;
+        sm.free_smem(&self.smem);
     }
 }
 
@@ -267,8 +268,8 @@ impl Engine for KernelEngine {
                     return None;
                 }
                 let cores_per_tb = (threads as usize).div_ceil(sm.config.num_lanes).div_ceil(warps_per_core);
-                // 0 bytes of smem per block places no limit
-                let smem_limit = sm.free_smem.checked_div(smem).unwrap_or(usize::MAX);
+                // 0 bytes of smem per block places no limit; the SM is idle so all of it is free
+                let smem_limit = sm.config.shmem.checked_div(smem).unwrap_or(usize::MAX);
                 let n_tb = (sm.config.num_cores / cores_per_tb).min(smem_limit);
                 (n_tb > 0).then_some((idx, n_tb, warps_per_core))
             })
@@ -284,7 +285,10 @@ impl Engine for KernelEngine {
         let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
         let (gx, gy, _) = p.grid;
         let mut next_core = 0;
-        for tb_idx in 0..n_tb.min((self.total_tb - self.tb_ctr) as usize) {
+        for _ in 0..n_tb.min((self.total_tb - self.tb_ctr) as usize) {
+            let Some(smem_range) = sm.alloc_smem(smem) else {
+                break;
+            };
             let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
             self.tb_ctr += 1;
             // pack the CTA's warps onto consecutive cores, warps_per_core each
@@ -293,16 +297,15 @@ impl Engine for KernelEngine {
                 .map(|(core, chunk)| {
                     let core_regs = chunk.len() * regs;
                     let slots: Vec<_> = chunk.iter().cloned().enumerate().collect();
-                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, (tb_idx * smem) as u32);
+                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, smem_range.start as u32);
                     sm.running[core] = true;
                     sm.free_regs[core] -= core_regs;
                     (core, core_regs)
                 })
                 .collect();
             next_core += cores.len();
-            sm.free_smem -= smem;
             info!(self.logger, "Spawning block_idx {:?} on sm {} cores {:?}", block_idx, sm_idx, cores);
-            self.inflight.push(Cta { sm: sm_idx, cores, smem });
+            self.inflight.push(Cta { sm: sm_idx, cores, smem: smem_range });
         }
         Ok(())
     }
