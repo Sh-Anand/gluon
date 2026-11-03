@@ -1,7 +1,6 @@
 use crate::{
     common::base::{Clocked, CmdType, Configurable, Event, SimErr},
     glug::engine::{Engine, EngineCommand},
-    glul::glul::GLULStatus,
 };
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
@@ -45,19 +44,10 @@ impl Engine for CSEngine {
         panic!("CSR engine: cannot set mem resp");
     }
 
-    fn get_glul_req(&self) -> Option<&crate::glul::glul::GLULReq> {
-        None
-    }
-
-    fn clear_glul_req(&mut self) {
-        panic!("CSR engine: cannot clear glul req");
-    }
-
     fn notify_glul_done(&mut self, _: u32) {
         panic!("CSR engine: cannot notify glul done");
     }
 
-    fn set_gluls(&mut self, _: Vec<GLULStatus>) {}
 
     fn notify_glul_err(&mut self, _: ExecErr) {
         panic!("CSR engine: cannot notify glul err");

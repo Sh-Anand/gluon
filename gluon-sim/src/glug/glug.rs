@@ -80,15 +80,7 @@ impl Configurable<GLUGConfig> for GLUG {
             .map(|(idx, config)| GLUL::new_with_logger_dram(idx, config, logger.clone(), muon_logger.clone(), dram.clone()))
             .collect::<Vec<_>>();
 
-        let mut engines = engine_config.generate_engines(logger.clone());
-        engines.iter_mut().for_each(|engine| {
-            engine.set_gluls(
-                gluls
-                    .iter()
-                    .map(|glul| glul.get_status().clone())
-                    .collect::<Vec<_>>(),
-            );
-        });
+        let engines = engine_config.generate_engines(logger.clone());
 
         GLUG {
             cmd: Command::default(),
@@ -142,20 +134,11 @@ impl Clocked for GLUG {
             }
         });
 
-        // Service GLUL schedules
+        // Engines launch thread blocks onto GLULs, in engine order
         self.engines
             .iter_mut()
             .enumerate()
-            .for_each(|(idx, engine)| {
-                if let Some(glul_req) = engine.get_glul_req() {
-                    let thread_blocks = glul_req.thread_blocks.as_ref().expect("Thread blocks not set").clone();
-                    self.gluls[glul_req.idx].submit_thread_block(
-                        thread_blocks,
-                        idx,
-                    );
-                    engine.clear_glul_req();
-                }
-            });
+            .try_for_each(|(idx, engine)| engine.launch(&mut self.gluls, idx))?;
 
         // Tick GLULs
         self.gluls.iter_mut().try_for_each(|glul| glul.tick())?;

@@ -9,8 +9,7 @@ use crate::common::base::SimErr;
 use crate::common::base::ThreadBlocks;
 use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
-use crate::glul::glul::GLULReq;
-use crate::glul::glul::GLULStatus;
+use crate::glul::glul::GLUL;
 use cyclotron::info;
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
@@ -145,8 +144,6 @@ pub struct KernelEngine {
     total_tb: u32,
     tb_done: u32,
 
-    gluls: Vec<GLULStatus>,
-    glul_req: GLULReq,
 
     err: Option<Result<(), ExecErr>>,
 
@@ -166,8 +163,6 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             tb_ctr: 0,
             total_tb: 0,
             tb_done: 0,
-            gluls: vec![],
-            glul_req: GLULReq::default(),
             err: None,
             logger: Arc::new(Logger::new(0)),
         }
@@ -191,10 +186,6 @@ impl Engine for KernelEngine {
         self.logger = logger;
     }
 
-    fn set_gluls(&mut self, gluls: Vec<GLULStatus>) {
-        self.gluls = gluls
-    }
-
     fn get_dma_req(&self) -> Option<&DMAReq> {
         self.dma_req.as_ref()
     }
@@ -211,16 +202,71 @@ impl Engine for KernelEngine {
         self.mem_resp = data.map(|bytes| MemResp { data: Some(bytes.clone()) });
     }
 
-    fn get_glul_req(&self) -> Option<&GLULReq> {
-        if self.glul_req.thread_blocks.is_some() {
-            Some(&self.glul_req)
-        } else {
-            None
+    fn launch(&mut self, gluls: &mut [GLUL], engine_idx: usize) -> Result<(), SimErr> {
+        if !matches!(self.state, KernelEngineState::S3) {
+            return Ok(());
         }
-    }
+        // a warp that exceeds an empty core's regs can never launch
+        let regs = self.kernel_payload.regs_per_thread as usize;
+        if gluls.iter().all(|glul| glul.get_status().config.regs_per_core < regs) {
+            error!("kernel needs {} regs per warp, more than any core has", regs);
+            return Err(SimErr::EXECUTION);
+        }
+        let available_tbs = self.total_tb - self.tb_ctr;
 
-    fn clear_glul_req(&mut self) {
-        self.glul_req.thread_blocks = None;
+        if available_tbs > 0 {
+            let threads_per_block = self.kernel_payload.block.0 as u32
+                * self.kernel_payload.block.1 as u32
+                * self.kernel_payload.block.2 as u32;
+            if let Some((glul_idx, n_tb)) = gluls
+                .iter()
+                .map(|glul| glul.get_status())
+                .enumerate()
+                .filter(|(_, glul)| !glul.busy)
+                .map(|(idx, glul)| {
+                    let glul_cfg = glul.config;
+                    let res = &glul.res;
+                    let max_warps_per_core = res.warps_per_core(&glul_cfg, self.kernel_payload.regs_per_thread as usize);
+                    if max_warps_per_core == 0 {
+                        return (idx, 0);
+                    }
+                    let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
+                    let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
+                    let core_limit = glul_cfg.num_cores / cores_per_tb;
+                    // 0 bytes of smem per block places no limit
+                    let shmem_limit = match self.kernel_payload.shmem_per_block {
+                        0 => usize::MAX,
+                        shmem => res.free_smem / shmem as usize,
+                    };
+                    (idx, core_limit.min(shmem_limit))
+                })
+                .filter(|(_, value)| *value > 0)
+                .min_by_key(|(_, value)| *value)
+            {
+                let n_tb_req = (n_tb as u32).min(available_tbs);
+                let mut block_idxs = Vec::new();
+                for _ in 0..n_tb_req {
+                    let gx = self.kernel_payload.grid.0;
+                    let gy = self.kernel_payload.grid.1;
+                    let plane = gx * gy;
+                    let block_z = self.tb_ctr / plane;
+                    let rem = self.tb_ctr % plane;
+                    let block_y = rem / gx;
+                    let block_x = rem % gx;
+                    block_idxs.push((block_x, block_y, block_z));
+                    self.tb_ctr += 1;
+                }
+                gluls[glul_idx].submit_thread_block(ThreadBlocks {
+                    pc: self.kernel_payload.start_pc,
+                    block_idxs: block_idxs,
+                    block_dim: self.kernel_payload.block,
+                    regs: self.kernel_payload.regs_per_thread as u32,
+                    shmem: self.kernel_payload.shmem_per_block,
+                    bp: self.cmd.expect("Unreachable: Kernel command not set").gpu_addr,
+                }, engine_idx);
+            }
+        }
+        Ok(())
     }
 
     fn notify_glul_done(&mut self, tbs: u32) {
@@ -306,12 +352,6 @@ impl Clocked for KernelEngine {
                         self.tb_size = self.kernel_payload.block.0 as u32
                             * self.kernel_payload.block.1 as u32
                             * self.kernel_payload.block.2 as u32;
-                        // a warp that exceeds an empty core's regs can never launch
-                        let regs = self.kernel_payload.regs_per_thread as usize;
-                        if self.gluls.iter().all(|glul| glul.config.regs_per_core < regs) {
-                            error!("kernel needs {} regs per warp, more than any core has", regs);
-                            return Err(SimErr::EXECUTION);
-                        }
                         self.state = KernelEngineState::S3;
                     }
                 } else {
@@ -332,63 +372,6 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S3 => {
-                let available_tbs = self.total_tb - self.tb_ctr;
-
-                if available_tbs > 0 {
-                    let threads_per_block = self.kernel_payload.block.0 as u32
-                        * self.kernel_payload.block.1 as u32
-                        * self.kernel_payload.block.2 as u32;
-                    if let Some((glul_if_idx, n_tb)) = self
-                        .gluls
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, glul)| !*glul.busy.read().expect("GLUL busy poisoned"))
-                        .map(|(idx, glul)| {
-                            let glul_cfg = glul.config;
-                            let res = glul.res.read().expect("GLUL res poisoned");
-                            let max_warps_per_core = res.warps_per_core(&glul_cfg, self.kernel_payload.regs_per_thread as usize);
-                            if max_warps_per_core == 0 {
-                                return (idx, 0);
-                            }
-                            let warps_per_tb = (threads_per_block / glul_cfg.num_lanes as u32).max(1);
-                            let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
-                            let core_limit = glul_cfg.num_cores / cores_per_tb;
-                            // 0 bytes of smem per block places no limit
-                            let shmem_limit = match self.kernel_payload.shmem_per_block {
-                                0 => usize::MAX,
-                                shmem => res.free_smem / shmem as usize,
-                            };
-                            (idx, core_limit.min(shmem_limit))
-                        })
-                        .filter(|(_, value)| *value > 0)
-                        .min_by_key(|(_, value)| *value)
-                    {
-                        let n_tb_req = (n_tb as u32).min(available_tbs);
-                        let mut block_idxs = Vec::new();
-                        for _ in 0..n_tb_req {
-                            let gx = self.kernel_payload.grid.0;
-                            let gy = self.kernel_payload.grid.1;
-                            let plane = gx * gy;
-                            let block_z = self.tb_ctr / plane;
-                            let rem = self.tb_ctr % plane;
-                            let block_y = rem / gx;
-                            let block_x = rem % gx;
-                            block_idxs.push((block_x, block_y, block_z));
-                            self.tb_ctr += 1;
-                        }
-                        self.glul_req.thread_blocks = Some(ThreadBlocks {
-                            pc: self.kernel_payload.start_pc,
-                            block_idxs: block_idxs,
-                            block_dim: self.kernel_payload.block,
-                            regs: self.kernel_payload.regs_per_thread as u32,
-                            shmem: self.kernel_payload.shmem_per_block,
-                            bp: self.cmd.expect("Unreachable: Kernel command not set").gpu_addr,
-                        });
-                        self.glul_req.idx = glul_if_idx;
-                        *self.gluls[glul_if_idx].busy.write().expect("GLUL busy poisoned") = true;
-                    }
-                }
-
                 if self.tb_done == self.total_tb {
                     self.state = KernelEngineState::S4;
                 }

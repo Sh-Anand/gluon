@@ -1,7 +1,6 @@
 use crate::{
     common::base::{Clocked, CmdType, Configurable, DMADir, DMAReq, Event, MemReq, MemResp, SimErr},
     glug::engine::{Engine, EngineCommand},
-    glul::glul::{GLULReq, GLULStatus},
 };
 use cyclotron::{info, muon::warp::ExecErr};
 use cyclotron::sim::log::Logger;
@@ -147,19 +146,10 @@ impl Engine for MemEngine {
         self.mem_resp = Some(MemResp { data: None });
     }
 
-    fn get_glul_req(&self) -> Option<&GLULReq> {
-        None
-    }
-
-    fn clear_glul_req(&mut self) {
-        panic!("Mem engine: no gluls to clear");
-    }
-
     fn notify_glul_done(&mut self, _: u32) {
         panic!("Mem engine: no gluls to notify");
     }
 
-    fn set_gluls(&mut self, _: Vec<GLULStatus>) {}
 
     fn notify_glul_err(&mut self, _: ExecErr) {
         panic!("Mem engine: no gluls to notify");

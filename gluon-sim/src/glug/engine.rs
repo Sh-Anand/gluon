@@ -1,12 +1,12 @@
 use std::iter::repeat_with;
 
-use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, Event, MemReq};
+use crate::common::base::{Clocked, CmdType, Command, Configurable, DMAReq, Event, MemReq, SimErr};
 use crate::glug::engines::{
     cs_engine::{CSEngine, CSEngineConfig},
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
-use crate::glul::glul::{GLULReq, GLULStatus};
+use crate::glul::glul::GLUL;
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
@@ -17,13 +17,14 @@ pub trait Engine: Clocked + Send {
     fn busy(&self) -> bool;
     fn cmd_type(&self) -> CmdType;
     fn set_logger(&mut self, logger: Arc<Logger>);
-    fn set_gluls(&mut self, gluls: Vec<GLULStatus>);
     fn get_dma_req(&self) -> Option<&DMAReq>;
     fn done_dma_req(&mut self);
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
-    fn get_glul_req(&self) -> Option<&GLULReq>;
-    fn clear_glul_req(&mut self);
+    // claim GLULs and submit thread blocks, in engine order
+    fn launch(&mut self, _gluls: &mut [GLUL], _engine_idx: usize) -> Result<(), SimErr> {
+        Ok(())
+    }
     fn notify_glul_done(&mut self, tbs: u32);
     fn notify_glul_err(&mut self, err: ExecErr);
     fn get_completion(&self) -> Option<Event>;
