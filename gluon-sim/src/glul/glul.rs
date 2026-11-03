@@ -96,7 +96,6 @@ impl Configurable<GLULConfig> for GLULStatus {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GLULState {
     S0,
-    S1,
     S2,
     S3,
 }
@@ -118,78 +117,7 @@ pub struct GLUL {
 impl Clocked for GLUL {
     fn tick(&mut self) -> Result<(), SimErr> {
         match self.state {
-            GLULState::S0 => {
-                if self.thread_blocks.is_some() {
-                    self.done = false;
-                    self.cores.iter_mut().for_each(|(core, _)| core.reset());
-                    self.neutrino.reset();
-                    self.state = GLULState::S1;
-                }
-            }
-            GLULState::S1 => {
-                let thread_blocks = self.thread_blocks.as_ref().expect("Thread blocks not set");
-                let threads_per_tb = thread_blocks.block_dim.0
-                    * thread_blocks.block_dim.1
-                    * thread_blocks.block_dim.2;
-                let warps_per_tb = (threads_per_tb / self.status.config.num_lanes as u32).max(1);
-                let remaining_threads = threads_per_tb % self.status.config.num_lanes as u32;
-                let threads_in_last_warp = if remaining_threads == 0 {
-                    self.status.config.num_lanes as u32
-                } else {
-                    remaining_threads
-                };
-                let mut res = self.status.res.write().expect("GLUL res poisoned");
-                let regs = thread_blocks.regs as usize;
-                let max_warps_per_core = res.warps_per_core(&self.status.config, regs);
-                let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
-                let warps_per_core = warps_per_tb / cores_per_tb as u32;
-                let mut thread_idx = (0, 0, 0);
-                debug!(
-                    self.logger,
-                    "GLUL: Spawning threadblocks {:?}, warps_per_tb {:?}, cores_per_tb {:?}, threads_in_last_warp {:?}", thread_blocks.block_idxs, warps_per_tb, cores_per_tb, threads_in_last_warp
-                );
-                thread_blocks.block_idxs.iter().enumerate().for_each(|(tb_idx, block_idx)| {
-                    let core_start = tb_idx * cores_per_tb;
-                    let core_end = core_start + cores_per_tb;
-                    debug!(
-                        self.logger,
-                        "GLUL: Threadblock {:?}, core_start {:?}, core_end {:?}", tb_idx, core_start, core_end
-                    );
-                    (core_start..core_end).for_each(|core_idx| {
-                        let mut thread_idxs = Vec::new();
-                        for warp_idx in 0..warps_per_core {
-                            let lanes_in_warp = if warp_idx == warps_per_core - 1 {
-                                threads_in_last_warp as usize
-                            } else {
-                                self.status.config.num_lanes
-                            };
-                            let mut warp_thread_idxs = Vec::new();
-                            for _ in 0..lanes_in_warp {
-                                warp_thread_idxs.push(thread_idx);
-                                thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0;
-                                if block_idx.0 == 0 {
-                                    thread_idx.1 = (thread_idx.1 + 1) % thread_blocks.block_dim.1;
-                                    if thread_idx.1 == 0 {
-                                        thread_idx.2 = (thread_idx.2 + 1) % thread_blocks.block_dim.2;
-                                    }
-                                }
-                            }
-                            thread_idxs.push(warp_thread_idxs);
-                        }
-                        info!(
-                            self.logger,
-                            "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
-                        );
-                        let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
-                    core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp, tb_idx as u32 * thread_blocks.shmem);
-                        core.1 = true;
-                        res.free_regs[core_idx] -= warps_per_core as usize * regs;
-                    });
-                    res.free_smem -= thread_blocks.shmem as usize;
-                });
-                drop(res);
-                self.state = GLULState::S2;
-            }
+            GLULState::S0 => {}
             GLULState::S2 => {
                 self.cores.iter_mut().filter(|(_, scheduled)| *scheduled).map(|(core, _)| core).for_each(|core| {
                     core.tick_one();
@@ -265,9 +193,73 @@ impl GLUL {
             self.logger,
             "Submitting {:?} to {:?}", thread_blocks, self.status.config
         );
+        self.spawn(&thread_blocks);
         self.thread_blocks = Some(thread_blocks);
         self.engine_idx = engine_idx;
-        self.state = GLULState::S1;
+        self.state = GLULState::S2;
+    }
+
+    fn spawn(&mut self, thread_blocks: &ThreadBlocks) {
+        let threads_per_tb = thread_blocks.block_dim.0
+            * thread_blocks.block_dim.1
+            * thread_blocks.block_dim.2;
+        let warps_per_tb = (threads_per_tb / self.status.config.num_lanes as u32).max(1);
+        let remaining_threads = threads_per_tb % self.status.config.num_lanes as u32;
+        let threads_in_last_warp = if remaining_threads == 0 {
+            self.status.config.num_lanes as u32
+        } else {
+            remaining_threads
+        };
+        let mut res = self.status.res.write().expect("GLUL res poisoned");
+        let regs = thread_blocks.regs as usize;
+        let max_warps_per_core = res.warps_per_core(&self.status.config, regs);
+        let cores_per_tb = (warps_per_tb as f32 / max_warps_per_core as f32).ceil() as usize;
+        let warps_per_core = warps_per_tb / cores_per_tb as u32;
+        let mut thread_idx = (0, 0, 0);
+        debug!(
+            self.logger,
+            "GLUL: Spawning threadblocks {:?}, warps_per_tb {:?}, cores_per_tb {:?}, threads_in_last_warp {:?}", thread_blocks.block_idxs, warps_per_tb, cores_per_tb, threads_in_last_warp
+        );
+        thread_blocks.block_idxs.iter().enumerate().for_each(|(tb_idx, block_idx)| {
+            let core_start = tb_idx * cores_per_tb;
+            let core_end = core_start + cores_per_tb;
+            debug!(
+                self.logger,
+                "GLUL: Threadblock {:?}, core_start {:?}, core_end {:?}", tb_idx, core_start, core_end
+            );
+            (core_start..core_end).for_each(|core_idx| {
+                let mut thread_idxs = Vec::new();
+                for warp_idx in 0..warps_per_core {
+                    let lanes_in_warp = if warp_idx == warps_per_core - 1 {
+                        threads_in_last_warp as usize
+                    } else {
+                        self.status.config.num_lanes
+                    };
+                    let mut warp_thread_idxs = Vec::new();
+                    for _ in 0..lanes_in_warp {
+                        warp_thread_idxs.push(thread_idx);
+                        thread_idx.0 = (thread_idx.0 + 1) % thread_blocks.block_dim.0;
+                        if block_idx.0 == 0 {
+                            thread_idx.1 = (thread_idx.1 + 1) % thread_blocks.block_dim.1;
+                            if thread_idx.1 == 0 {
+                                thread_idx.2 = (thread_idx.2 + 1) % thread_blocks.block_dim.2;
+                            }
+                        }
+                    }
+                    thread_idxs.push(warp_thread_idxs);
+                }
+                info!(
+                    self.logger,
+                    "GLUL: Spawning block_idx {:?}, warps {:?}, to core {:?}", block_idx, thread_idxs, core_idx
+                );
+                let core = self.cores.get_mut(core_idx).expect("Core index out of bounds");
+                core.0.spawn_n_warps(thread_blocks.pc, block_idx.clone(), thread_idxs, thread_blocks.bp, tb_idx as u32 * thread_blocks.shmem);
+                core.1 = true;
+                res.free_regs[core_idx] -= warps_per_core as usize * regs;
+            });
+            res.free_smem -= thread_blocks.shmem as usize;
+        });
+        drop(res);
     }
 
     pub fn try_acknowledge_done_err(&mut self) -> Option<Result<(usize, u32), (usize, ExecErr)>> {
