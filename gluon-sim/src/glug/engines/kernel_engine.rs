@@ -292,7 +292,8 @@ impl Engine for KernelEngine {
                 .zip(warps.chunks(warps_per_core))
                 .map(|(core, chunk)| {
                     let core_regs = chunk.len() * regs;
-                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, chunk.to_vec(), bp, (tb_idx * smem) as u32);
+                    let slots: Vec<_> = chunk.iter().cloned().enumerate().collect();
+                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, (tb_idx * smem) as u32);
                     sm.running[core] = true;
                     sm.free_regs[core] -= core_regs;
                     (core, core_regs)
