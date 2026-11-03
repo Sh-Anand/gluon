@@ -133,17 +133,16 @@ impl KernelPayload {
 // a launched CTA and the SM resources it holds
 struct Cta {
     sm: usize,
-    cores: Vec<(usize, usize)>, // (core, regs held there)
+    cores: Vec<usize>,
     smem: Range<usize>,
 }
 
 impl Cta {
     fn free(&self, sms: &mut [SM]) {
         let sm = &mut sms[self.sm];
-        for &(core, regs) in &self.cores {
+        for &core in &self.cores {
             sm.running[core] = false;
             sm.errs[core] = None;
-            sm.free_regs[core] += regs;
         }
         sm.free_smem(&self.smem);
     }
@@ -191,7 +190,7 @@ impl KernelEngine {
         let err = self
             .inflight
             .iter()
-            .find_map(|cta| cta.cores.iter().find_map(|&(core, _)| sms[cta.sm].errs[core].clone()));
+            .find_map(|cta| cta.cores.iter().find_map(|&core| sms[cta.sm].errs[core].clone()));
         if let Some(err) = err {
             self.inflight.drain(..).for_each(|cta| cta.free(sms));
             self.err = Some(Err(err));
@@ -199,12 +198,41 @@ impl KernelEngine {
             return;
         }
         self.inflight.retain(|cta| {
-            let retired = cta.cores.iter().all(|&(core, _)| sms[cta.sm].cores[core].all_warps_retired());
+            let retired = cta.cores.iter().all(|&core| sms[cta.sm].cores[core].all_warps_retired());
             if retired {
                 cta.free(sms);
             }
             !retired
         });
+    }
+
+    // spawn the next CTA on `sm` if it has enough free cores and smem
+    fn place(&self, sm_idx: usize, sm: &mut SM) -> Option<Cta> {
+        let p = self.kernel_payload;
+        let warps_per_core = sm.config.num_warps.min(sm.config.regs_per_core / p.regs_per_thread as usize);
+        if warps_per_core == 0 {
+            return None;
+        }
+        // thread idxs grouped into warps, x fastest, packed warps_per_core to a core
+        let (bx, by, bz) = p.block;
+        let thread_idxs: Vec<_> = (0..bx * by * bz).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
+        let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).collect();
+        let chunks: Vec<_> = warps.chunks(warps_per_core).collect();
+        let cores: Vec<_> = (0..sm.config.num_cores).filter(|&c| !sm.running[c]).take(chunks.len()).collect();
+        if cores.len() < chunks.len() {
+            return None;
+        }
+        let smem = sm.alloc_smem(p.shmem_per_block as usize)?;
+        let (gx, gy, _) = p.grid;
+        let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
+        let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
+        for (&core, chunk) in cores.iter().zip(chunks) {
+            let slots: Vec<_> = chunk.iter().map(|warp| warp.to_vec()).enumerate().collect();
+            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, smem.start as u32);
+            sm.running[core] = true;
+        }
+        info!(self.logger, "Spawning block_idx {:?} on sm {} cores {:?}", block_idx, sm_idx, cores);
+        Some(Cta { sm: sm_idx, cores, smem })
     }
 }
 
@@ -243,69 +271,22 @@ impl Engine for KernelEngine {
 
     fn launch(&mut self, sms: &mut [SM]) -> Result<(), SimErr> {
         self.retire(sms);
-        if !matches!(self.state, KernelEngineState::S3) || self.tb_ctr == self.total_tb {
+        if !matches!(self.state, KernelEngineState::S3) {
             return Ok(());
         }
-        let p = self.kernel_payload;
-        let regs = p.regs_per_thread as usize;
+        let regs = self.kernel_payload.regs_per_thread as usize;
         // a warp that exceeds an empty core's regs can never launch
         if sms.iter().all(|sm| sm.config.regs_per_core < regs) {
             error!("kernel needs {} regs per warp, more than any core has", regs);
             return Err(SimErr::EXECUTION);
         }
-        let (bx, by, bz) = p.block;
-        let threads = bx * by * bz;
-        let smem = p.shmem_per_block as usize;
-
-        // pick the idle SM that fits the fewest CTAs: (sm, CTAs, warps per core)
-        let Some((sm_idx, n_tb, warps_per_core)) = sms
-            .iter()
-            .enumerate()
-            .filter(|(_, sm)| !sm.running.contains(&true))
-            .filter_map(|(idx, sm)| {
-                let warps_per_core = sm.config.num_warps.min(sm.free_regs.iter().min()? / regs);
-                if warps_per_core == 0 {
-                    return None;
-                }
-                let cores_per_tb = (threads as usize).div_ceil(sm.config.num_lanes).div_ceil(warps_per_core);
-                // 0 bytes of smem per block places no limit; the SM is idle so all of it is free
-                let smem_limit = sm.config.shmem.checked_div(smem).unwrap_or(usize::MAX);
-                let n_tb = (sm.config.num_cores / cores_per_tb).min(smem_limit);
-                (n_tb > 0).then_some((idx, n_tb, warps_per_core))
-            })
-            .min_by_key(|&(_, n_tb, _)| n_tb)
-        else {
-            return Ok(());
-        };
-
-        let sm = &mut sms[sm_idx];
-        // thread idxs grouped into warps, x fastest
-        let thread_idxs: Vec<_> = (0..threads).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
-        let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).map(<[_]>::to_vec).collect();
-        let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
-        let (gx, gy, _) = p.grid;
-        let mut next_core = 0;
-        for _ in 0..n_tb.min((self.total_tb - self.tb_ctr) as usize) {
-            let Some(smem_range) = sm.alloc_smem(smem) else {
+        // place CTAs in order until the next one fits nowhere
+        while self.tb_ctr < self.total_tb {
+            let Some(cta) = sms.iter_mut().enumerate().find_map(|(idx, sm)| self.place(idx, sm)) else {
                 break;
             };
-            let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
             self.tb_ctr += 1;
-            // pack the CTA's warps onto consecutive cores, warps_per_core each
-            let cores: Vec<_> = (next_core..)
-                .zip(warps.chunks(warps_per_core))
-                .map(|(core, chunk)| {
-                    let core_regs = chunk.len() * regs;
-                    let slots: Vec<_> = chunk.iter().cloned().enumerate().collect();
-                    sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, smem_range.start as u32);
-                    sm.running[core] = true;
-                    sm.free_regs[core] -= core_regs;
-                    (core, core_regs)
-                })
-                .collect();
-            next_core += cores.len();
-            info!(self.logger, "Spawning block_idx {:?} on sm {} cores {:?}", block_idx, sm_idx, cores);
-            self.inflight.push(Cta { sm: sm_idx, cores, smem: smem_range });
+            self.inflight.push(cta);
         }
         Ok(())
     }

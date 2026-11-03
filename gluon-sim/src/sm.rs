@@ -43,7 +43,6 @@ pub struct SM {
     pub cores: Vec<MuonCore>,
     pub running: Vec<bool>,          // per core: has warps to tick
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
-    pub free_regs: Vec<usize>,       // per core
     smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
     neutrino: Neutrino,
 }
@@ -67,7 +66,6 @@ impl SM {
                 .collect(),
             running: vec![false; config.num_cores],
             errs: vec![None; config.num_cores],
-            free_regs: vec![config.regs_per_core; config.num_cores],
             smem_used: vec![],
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
         }
