@@ -53,7 +53,7 @@ impl SM {
             num_cores: config.num_cores,
             num_warps: config.num_warps,
             num_lanes: config.num_lanes,
-            num_regs: config.regs_per_core,
+            num_regs: 128, // architectural regs per thread; regs_per_core is the CP-side physical budget
             start_pc: 0,
             smem_size: config.shmem,
             lane_config: LaneConfig::default(),
