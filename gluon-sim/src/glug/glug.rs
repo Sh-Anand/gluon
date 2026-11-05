@@ -1,4 +1,4 @@
-use crate::common::base::{Clocked, Command, Configurable, DMADir, Event, SimErr};
+use crate::common::base::{Clocked, Command, Configurable, Cycles, DMADir, Event, SimErr};
 use crate::glug::completion::Completion;
 use crate::glug::dispatch::{Dispatch, DispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
@@ -12,6 +12,7 @@ use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
 use serde::Deserialize;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(default)]
@@ -39,6 +40,11 @@ pub struct GLUG {
     completion: Completion,
 
     sms: Vec<SM>,
+
+    // whole-run totals over busy ticks
+    cycles: Cycles,
+    sim_time: Duration,
+    core_time: Duration, // inside cyclotron
 
     dram: Arc<RwLock<FlatMemory>>,
 
@@ -92,6 +98,9 @@ impl Configurable<GLUGConfig> for GLUG {
             engines,
             completion: Completion::new(&config.stream),
             sms,
+            cycles: Cycles::default(),
+            sim_time: Duration::ZERO,
+            core_time: Duration::ZERO,
             dram,
             logger,
             host_pid: config.host_pid,
@@ -103,11 +112,16 @@ impl Configurable<GLUGConfig> for GLUG {
 impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Report erroring threadid
+        let start = Instant::now();
 
         // Enqueue engine completions
         self.engines.iter_mut().for_each(|engine| {
             if let Some(event) = engine.get_completion() {
                 self.completion.set_completion(event);
+                println!(
+                    "sim total: {}, {:.3?} (cyclotron {:.3?}, gluon {:.3?})",
+                    self.cycles, self.sim_time, self.core_time, self.sim_time - self.core_time
+                );
             }
         });
 
@@ -117,7 +131,11 @@ impl Clocked for GLUG {
             .try_for_each(|engine| engine.launch(&mut self.sms))?;
 
         // Tick SMs
+        let cores_busy = self.sms.iter().any(SM::busy);
+        let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
+        let core_start = Instant::now();
         self.sms.iter_mut().for_each(|sm| sm.tick());
+        let core_time = core_start.elapsed();
 
         // Service Mem requests
         if let Some(engine) = self
@@ -254,6 +272,12 @@ impl Clocked for GLUG {
             })
         {
             self.stream.enqueue(intake_out_cmd.sid(), intake_out_cmd);
+        }
+
+        if busy {
+            self.cycles.tick(cores_busy);
+            self.sim_time += start.elapsed();
+            self.core_time += core_time;
         }
 
         Ok(())

@@ -96,8 +96,12 @@ impl SM {
         self.smem_used.retain(|used| used != range);
     }
 
+    pub fn busy(&self) -> bool {
+        self.running.contains(&true)
+    }
+
     pub fn tick(&mut self) {
-        if !self.running.contains(&true) {
+        if !self.busy() {
             return;
         }
         self.cores

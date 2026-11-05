@@ -1,5 +1,6 @@
 use crate::common::base::Clocked;
 use crate::common::base::Configurable;
+use crate::common::base::Cycles;
 use crate::common::base::DMADir;
 use crate::common::base::DMAReq;
 use crate::common::base::Event;
@@ -160,6 +161,7 @@ pub struct KernelEngine {
     tb_ctr: u32,
     total_tb: u32,
     inflight: Vec<Cta>,
+    cycles: Cycles, // since the command arrived
 
     err: Option<Result<(), ExecErr>>,
 
@@ -178,6 +180,7 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             tb_ctr: 0,
             total_tb: 0,
             inflight: vec![],
+            cycles: Cycles::default(),
             err: None,
             logger: Arc::new(Logger::new(0)),
         }
@@ -305,6 +308,9 @@ impl Engine for KernelEngine {
 
 impl Clocked for KernelEngine {
     fn tick(&mut self) -> Result<(), SimErr> {
+        if Engine::busy(self) {
+            self.cycles.tick(!self.inflight.is_empty());
+        }
         match &self.state {
             KernelEngineState::S0 => {
                 if let Some(cmd) = &self.cmd {
@@ -384,6 +390,7 @@ impl Clocked for KernelEngine {
             }
 
             KernelEngineState::S5 => {
+                println!("kernel pc 0x{:08x}: {}", self.kernel_payload.kernel_pc, std::mem::take(&mut self.cycles));
                 self.state = KernelEngineState::S0;
                 self.cmd = None;
                 self.err = None;

@@ -146,3 +146,23 @@ impl Event {
         self.bytes[0]
     }
 }
+
+// busy cycles, and how many of them had a CTA on a core; the rest are CP-only
+#[derive(Default)]
+pub struct Cycles {
+    total: u64,
+    core: u64,
+}
+
+impl Cycles {
+    pub fn tick(&mut self, core: bool) {
+        self.total += 1;
+        self.core += core as u64;
+    }
+}
+
+impl std::fmt::Display for Cycles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} cycles (cores {}, cp {})", self.total, self.core, self.total - self.core)
+    }
+}
