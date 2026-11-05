@@ -8,7 +8,6 @@ use cyclotron::{
         core::MuonCore,
         warp::ExecErr,
     },
-    neutrino::{config::NeutrinoConfig, neutrino::Neutrino},
     sim::{log::Logger, flat_mem::FlatMemory},
 };
 use serde::Deserialize;
@@ -45,7 +44,6 @@ pub struct SM {
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
     smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
     pub frees: usize,                // CTAs freed so far; engines retry placement only after one
-    neutrino: Neutrino,
 }
 
 impl SM {
@@ -69,7 +67,6 @@ impl SM {
             errs: vec![None; config.num_cores],
             smem_used: vec![],
             frees: 0,
-            neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
         }
     }
 
@@ -113,19 +110,10 @@ impl SM {
             .filter(|((_, running), _)| **running)
             .for_each(|((core, running), err)| {
                 core.tick_one();
-                if let Err(e) = core.process(&mut self.neutrino) {
+                if let Err(e) = core.process() {
                     *err = Some(e);
                     *running = false;
                 }
             });
-        self.neutrino.tick_one();
-        self.neutrino.update(
-            &mut self.cores
-                .iter_mut()
-                .zip(self.running.iter())
-                .filter(|(_, running)| **running)
-                .map(|(core, _)| &mut core.scheduler)
-                .collect(),
-        );
     }
 }
