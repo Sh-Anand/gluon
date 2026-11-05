@@ -1,3 +1,6 @@
 [submodule "sw/libmuon"]
 	path = sw/libmuon
 	url = git@github.com:Sh-Anand/libmuon.git
+[submodule "sw/workloads/pathtracer"]
+	path = sw/workloads/pathtracer
+	url = git@github.com:Sh-Anand/pathtracer.git

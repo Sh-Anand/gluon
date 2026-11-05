@@ -71,7 +71,10 @@ public:
     }
 
     void parseELF(const std::string& elf_path) {
-        assert(reader.load(elf_path) && "elf loading failed");
+        // load outside the assert, which NDEBUG builds compile away
+        bool loaded = reader.load(elf_path);
+        assert(loaded && "elf loading failed");
+        (void)loaded;
         uint64_t min_vaddr = UINT64_MAX;
         uint64_t max_vaddr = 0;
         for (unsigned i = 0; i < reader.segments.size(); ++i) {

@@ -70,7 +70,9 @@ void radKernelLaunch(const char *kernel_name,
                      radStream_t stream) {
     static ELFLoader *loader = nullptr;
     if (!loader) {
-        loader = new ELFLoader("sw/test/build/kernel.elf");
+        // RAD_KERNEL_ELF lets workloads outside sw/test supply their kernel
+        const char *elf = getenv("RAD_KERNEL_ELF");
+        loader = new ELFLoader(elf ? elf : "sw/test/build/kernel.elf");
         void  *kernel_bin_addr;
         radMalloc(&kernel_bin_addr, loader->size);
         loader->applyRelocations((uint32_t)(uintptr_t)(kernel_bin_addr));
