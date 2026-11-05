@@ -11,15 +11,15 @@ muon_log_level = 0
 
 [[glug.sms]]
 id = 0
-num_cores = 4
+num_cores = 2
 num_warps = 8
-num_lanes = 16
+num_lanes = 32
 regs_per_core = 512
 shmem = 4096
 
 [[glug.sms]]
 id = 1
-num_cores = 8
+num_cores = 2
 num_warps = 8
 num_lanes = 32
 regs_per_core = 512
