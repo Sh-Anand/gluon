@@ -146,6 +146,7 @@ impl Cta {
             sm.errs[core] = None;
         }
         sm.free_smem(&self.smem);
+        sm.frees += 1;
     }
 }
 
@@ -161,6 +162,7 @@ pub struct KernelEngine {
     tb_ctr: u32,
     total_tb: u32,
     inflight: Vec<Cta>,
+    blocked_at: Option<usize>, // SM frees seen when placement last failed
     cycles: Cycles, // since the command arrived
 
     err: Option<Result<(), ExecErr>>,
@@ -180,6 +182,7 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             tb_ctr: 0,
             total_tb: 0,
             inflight: vec![],
+            blocked_at: None,
             cycles: Cycles::default(),
             err: None,
             logger: Arc::new(Logger::new(0)),
@@ -283,9 +286,15 @@ impl Engine for KernelEngine {
             error!("kernel needs {} regs per warp, more than any core has", regs);
             return Err(SimErr::EXECUTION);
         }
+        // nothing was freed since the last failed placement, so it would fail again
+        let frees = sms.iter().map(|sm| sm.frees).sum();
+        if self.blocked_at == Some(frees) {
+            return Ok(());
+        }
         // place CTAs in order until the next one fits nowhere
         while self.tb_ctr < self.total_tb {
             let Some(cta) = sms.iter_mut().enumerate().find_map(|(idx, sm)| self.place(idx, sm)) else {
+                self.blocked_at = Some(frees);
                 break;
             };
             self.tb_ctr += 1;
@@ -316,6 +325,7 @@ impl Clocked for KernelEngine {
                 if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
                     self.tb_ctr = 0;
+                    self.blocked_at = None;
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",

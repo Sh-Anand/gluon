@@ -44,6 +44,7 @@ pub struct SM {
     pub running: Vec<bool>,          // per core: has warps to tick
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
     smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
+    pub frees: usize,                // CTAs freed so far; engines retry placement only after one
     neutrino: Neutrino,
 }
 
@@ -67,6 +68,7 @@ impl SM {
             running: vec![false; config.num_cores],
             errs: vec![None; config.num_cores],
             smem_used: vec![],
+            frees: 0,
             neutrino: Neutrino::new(Arc::new(NeutrinoConfig::default())),
         }
     }
