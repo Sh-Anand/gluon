@@ -16,7 +16,7 @@ TEST_DIRS := $(wildcard sw/test/*/)
 TESTS := $(filter-out sw/test/build/,$(TEST_DIRS))
 TEST_NAMES := $(patsubst %/,%,$(patsubst sw/test/%,%,$(TESTS)))
 
-.PHONY: run server driver rad_driver clean list $(TEST_NAMES)
+.PHONY: run server driver rad_driver clean list pathtracer $(TEST_NAMES)
 
 run: server driver rad_driver
 	@set -euo pipefail; \
@@ -53,9 +53,8 @@ clean:
 list:
 	@printf "%s\n" $(TEST_NAMES)
 
-$(TEST_NAMES):
-	@set -euo pipefail; \
-		$(MAKE) -C sw/test TEST=$@ CPPFLAGS=; \
+# start the sim and the driver daemon in the background, killed on exit
+START_SIM = \
 		$(MAKE) rad_driver; \
 		$(CARGO) build --manifest-path $(RUST_MANIFEST); \
 		RUST_LOG=$(RUST_LOG) $(CARGO) run --manifest-path $(RUST_MANIFEST) & \
@@ -67,5 +66,23 @@ $(TEST_NAMES):
 		if ! kill -0 $$SERVER_PID 2>/dev/null; then \
 			wait $$SERVER_PID || true; \
 			exit 0; \
-		fi; \
+		fi
+
+$(TEST_NAMES):
+	@set -euo pipefail; \
+		$(MAKE) -C sw/test TEST=$@ CPPFLAGS=; \
+		$(START_SIM); \
 	$(MAKE) -C sw/test TEST=$@ run
+
+# pathtracer workload: built by its gluon target, renders to PT_OUT
+PATHTRACER := sw/workloads/pathtracer
+PT_SCENE ?= $(PATHTRACER)/gltf/bunny.glb
+PT_ARGS ?= -r 16 16
+PT_OUT ?= pathtracer.pfm
+
+pathtracer:
+	@set -euo pipefail; \
+		$(MAKE) -C $(PATHTRACER) target=gluon; \
+		$(START_SIM); \
+	RAD_KERNEL_ELF=$(PATHTRACER)/build/gluon/kernel.elf \
+		$(PATHTRACER)/build/gluon/host/pathtracer_gluon $(PT_ARGS) -f $(PT_OUT) $(PT_SCENE)

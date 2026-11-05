@@ -4,3 +4,4 @@
 [submodule "sw/workloads/pathtracer"]
 	path = sw/workloads/pathtracer
 	url = git@github.com:Sh-Anand/pathtracer.git
+	branch = gluon
