@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use cyclotron::{
     base::behavior::ModuleBehaviors,
     muon::{
-        config::{LaneConfig, MuonConfig},
+        config::{LaneConfig, MuonConfig, UnitsConfig},
         core::MuonCore,
         warp::ExecErr,
     },
@@ -22,6 +22,7 @@ pub struct SMConfig {
     pub regs_per_core: usize,
     pub shmem: usize,
     pub ibuf_depth: usize, // per warp
+    pub units: UnitsConfig, // functional unit widths and latencies
 }
 
 impl Default for SMConfig {
@@ -34,6 +35,7 @@ impl Default for SMConfig {
             regs_per_core: 256,
             shmem: 4096,
             ibuf_depth: 4,
+            units: UnitsConfig::default(),
         }
     }
 }
@@ -58,6 +60,7 @@ impl SM {
             start_pc: 0,
             smem_size: config.shmem,
             ibuf_depth: config.ibuf_depth,
+            units: config.units,
             lane_config: LaneConfig::default(),
         };
         let shared_mem = Arc::new(RwLock::new(FlatMemory::new_with_size(config.shmem, None)));
