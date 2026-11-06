@@ -21,6 +21,7 @@ pub struct SMConfig {
     pub num_lanes: usize,
     pub regs_per_core: usize,
     pub shmem: usize,
+    pub ibuf_depth: usize, // per warp
 }
 
 impl Default for SMConfig {
@@ -32,6 +33,7 @@ impl Default for SMConfig {
             num_lanes: 16,
             regs_per_core: 256,
             shmem: 4096,
+            ibuf_depth: 4,
         }
     }
 }
@@ -55,6 +57,7 @@ impl SM {
             num_regs: 128, // architectural regs per thread; regs_per_core is the CP-side physical budget
             start_pc: 0,
             smem_size: config.shmem,
+            ibuf_depth: config.ibuf_depth,
             lane_config: LaneConfig::default(),
         };
         let shared_mem = Arc::new(RwLock::new(FlatMemory::new_with_size(config.shmem, None)));

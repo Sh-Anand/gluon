@@ -16,6 +16,7 @@ num_warps = 8
 num_lanes = 32
 regs_per_core = 512
 shmem = 4096
+ibuf_depth = 4
 
 [[glug.sms]]
 id = 1
@@ -24,6 +25,7 @@ num_warps = 8
 num_lanes = 32
 regs_per_core = 512
 shmem = 8192
+ibuf_depth = 4
 
 [intake]
 command_queue_size = 4
