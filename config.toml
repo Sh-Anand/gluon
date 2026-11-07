@@ -9,6 +9,18 @@ timeout_cycles = 0
 gluon_log_level = 2
 muon_log_level = 0
 
+# functional units, all fully pipelined: a warp-instruction takes ceil(num_lanes / lanes)
+# passes, and its rd is ready `latency` cycles after the last pass issues
+[glug.units]
+alu        = { lanes = 32, latency = 3 }
+mul        = { lanes = 32, latency = 36 }
+div        = { lanes = 32, latency = 37 }
+fp         = { lanes = 16, latency = 5 }
+fp_divsqrt = { lanes = 4,  latency = 16 }
+fp_exp     = { lanes = 8,  latency = 9 }
+sfu        = { lanes = 32, latency = 3 }
+lsu        = { lanes = 32, latency = 4 }
+
 [[glug.sms]]
 id = 0
 num_cores = 2

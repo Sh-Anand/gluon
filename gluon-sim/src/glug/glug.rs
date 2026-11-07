@@ -7,6 +7,7 @@ use crate::glug::stream::{Stream, StreamConfig};
 use crate::sm::{SMConfig, SM};
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
+use cyclotron::muon::config::UnitsConfig;
 use cyclotron::sim::config::MemConfig;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
@@ -22,6 +23,7 @@ pub struct GLUGConfig {
     pub stream: StreamConfig,
     pub engine: EngineConfig,
     pub sms: Vec<SMConfig>,
+    pub units: UnitsConfig, // functional units, shared by all SMs
     pub host_pid: i32,
     pub driver_pid: i32,
     pub gluon_log_level: u64,
@@ -83,7 +85,7 @@ impl Configurable<GLUGConfig> for GLUG {
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, config)| SM::new(idx, config, muon_logger.clone(), dram.clone()))
+            .map(|(idx, sm)| SM::new(idx, sm, config.units, muon_logger.clone(), dram.clone()))
             .collect::<Vec<_>>();
 
         let engines = engine_config.generate_engines(logger.clone());
