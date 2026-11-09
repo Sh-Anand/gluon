@@ -11,6 +11,7 @@ use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
 use crate::sm::SM;
 use cyclotron::info;
+use cyclotron::muon::core::CtaId;
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
 use log::error;
@@ -136,19 +137,17 @@ impl KernelPayload {
 // a launched CTA and the SM resources it holds
 struct Cta {
     sm: usize,
-    warps: Vec<(usize, usize)>, // (core, warp)
+    id: CtaId,
     smem: Range<usize>,
-    regs: usize, // per thread
 }
 
 impl Cta {
     fn free(&self, sms: &mut [SM]) {
         let sm = &mut sms[self.sm];
-        for &(core, _) in &self.warps {
-            // other CTAs may still run on the core; a core that errored stays stopped
-            sm.running[core] &= sm.cores[core].scheduler.active_warp_mask() != 0;
-            sm.errs[core] = None;
-            sm.regs_used[core] -= self.regs;
+        for (core, err) in sm.cores.iter_mut().zip(sm.errs.iter_mut()) {
+            if core.free_cta(self.id) {
+                *err = None;
+            }
         }
         sm.free_smem(&self.smem);
         sm.frees += 1;
@@ -201,7 +200,10 @@ impl KernelEngine {
         let err = self
             .inflight
             .iter()
-            .find_map(|cta| cta.warps.iter().find_map(|&(core, _)| sms[cta.sm].errs[core].clone()));
+            .find_map(|cta| {
+                let sm = &sms[cta.sm];
+                sm.cores.iter().zip(&sm.errs).find_map(|(core, err)| err.clone().filter(|_| core.cta_live(cta.id)))
+            });
         if let Some(err) = err {
             self.inflight.drain(..).for_each(|cta| cta.free(sms));
             self.err = Some(Err(err));
@@ -209,10 +211,7 @@ impl KernelEngine {
             return;
         }
         self.inflight.retain(|cta| {
-            let retired = cta
-                .warps
-                .iter()
-                .all(|&(core, w)| sms[cta.sm].cores[core].scheduler.active_warp_mask() >> w & 1 == 0);
+            let retired = sms[cta.sm].cores.iter().all(|core| !core.cta_live(cta.id));
             if retired {
                 cta.free(sms);
             }
@@ -229,12 +228,11 @@ impl KernelEngine {
         let thread_idxs: Vec<_> = (0..bx * by * bz).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
         let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).collect();
         // each core's free warp slots, as many as its free regs allow; roomiest cores first
-        let mut free: Vec<Vec<(usize, usize)>> = (0..sm.config.num_cores)
-            .map(|c| {
-                let active = sm.cores[c].scheduler.active_warp_mask();
-                let room = (sm.config.regs_per_core - sm.regs_used[c]) / regs;
-                (0..sm.config.num_warps).filter(|&w| active >> w & 1 == 0).take(room).map(|w| (c, w)).collect()
-            })
+        let mut free: Vec<Vec<(usize, usize)>> = sm
+            .cores
+            .iter()
+            .enumerate()
+            .map(|(c, core)| core.free_warps(regs, sm.config.regs_per_core).into_iter().map(|w| (c, w)).collect())
             .collect();
         free.sort_by_key(|slots| std::cmp::Reverse(slots.len()));
         let slots: Vec<_> = free.concat().into_iter().take(warps.len()).collect();
@@ -246,12 +244,11 @@ impl KernelEngine {
         let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
         let cmd = self.cmd.expect("Unreachable: Kernel command not set");
         for (&(core, w), threads) in slots.iter().zip(warps) {
-            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &[(w, threads.to_vec())], cmd.gpu_addr, smem.start as u32, cmd.cmd_id);
-            sm.running[core] = true;
-            sm.regs_used[core] += regs;
+            let slot = [(w, threads.to_vec())];
+            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slot, cmd.gpu_addr, smem.start as u32, cmd.cmd_id, regs);
         }
         info!(self.logger, "Spawning block_idx {:?} on sm {} (core, warp) {:?}", block_idx, sm_idx, slots);
-        Some(Cta { sm: sm_idx, warps: slots, smem, regs })
+        Some(Cta { sm: sm_idx, id: (cmd.cmd_id, block_idx), smem })
     }
 }
 

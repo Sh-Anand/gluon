@@ -54,8 +54,6 @@ impl Default for CoreConfig {
 pub struct SM {
     pub config: SMConfig,
     pub cores: Vec<MuonCore>,
-    pub running: Vec<bool>,          // per core: has warps to tick
-    pub regs_used: Vec<usize>,       // per core: regs per lane held by resident CTAs, across kernels
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
     smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
     pub frees: usize,                // CTAs freed so far; engines retry placement only after one
@@ -81,8 +79,6 @@ impl SM {
             cores: (0..config.num_cores)
                 .map(|i| MuonCore::new(Arc::new(muon_config), id, i, &muon_logger, dram.clone(), shared_mem.clone()))
                 .collect(),
-            running: vec![false; config.num_cores],
-            regs_used: vec![0; config.num_cores],
             errs: vec![None; config.num_cores],
             smem_used: vec![],
             frees: 0,
@@ -115,23 +111,17 @@ impl SM {
     }
 
     pub fn busy(&self) -> bool {
-        self.running.contains(&true)
+        self.cores.iter().zip(&self.errs).any(|(core, err)| err.is_none() && core.scheduler.active_warp_mask() != 0)
     }
 
     pub fn tick(&mut self, now: u64) {
-        if !self.busy() {
-            return;
-        }
-        self.cores
-            .iter_mut()
-            .zip(self.running.iter_mut())
-            .zip(self.errs.iter_mut())
-            .filter(|((_, running), _)| **running)
-            .for_each(|((core, running), err)| {
+        // cores with running warps; a core that errored stops until its CTAs are freed
+        for (core, err) in self.cores.iter_mut().zip(self.errs.iter_mut()) {
+            if err.is_none() && core.scheduler.active_warp_mask() != 0 {
                 if let Err(e) = core.process(now) {
                     *err = Some(e);
-                    *running = false;
                 }
-            });
+            }
+        }
     }
 }
