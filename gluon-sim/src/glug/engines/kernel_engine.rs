@@ -141,19 +141,6 @@ struct Cta {
     smem: Range<usize>,
 }
 
-impl Cta {
-    fn free(&self, sms: &mut [SM]) {
-        let sm = &mut sms[self.sm];
-        for (core, err) in sm.cores.iter_mut().zip(sm.errs.iter_mut()) {
-            if core.free_cta(self.id) {
-                *err = None;
-            }
-        }
-        sm.free_smem(&self.smem);
-        sm.frees += 1;
-    }
-}
-
 pub struct KernelEngine {
     cmd: Option<KernelCommand>,
 
@@ -197,23 +184,17 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
 impl KernelEngine {
     // free retired CTAs; an error on any core kills the whole kernel
     fn retire(&mut self, sms: &mut [SM]) {
-        let err = self
-            .inflight
-            .iter()
-            .find_map(|cta| {
-                let sm = &sms[cta.sm];
-                sm.cores.iter().zip(&sm.errs).find_map(|(core, err)| err.clone().filter(|_| core.cta_live(cta.id)))
-            });
+        let err = self.inflight.iter().find_map(|cta| sms[cta.sm].cta_err(cta.id));
         if let Some(err) = err {
-            self.inflight.drain(..).for_each(|cta| cta.free(sms));
+            self.inflight.drain(..).for_each(|cta| sms[cta.sm].free_cta(cta.id, &cta.smem));
             self.err = Some(Err(err));
             self.state = KernelEngineState::S5;
             return;
         }
         self.inflight.retain(|cta| {
-            let retired = sms[cta.sm].cores.iter().all(|core| !core.cta_live(cta.id));
+            let retired = !sms[cta.sm].cta_live(cta.id);
             if retired {
-                cta.free(sms);
+                sms[cta.sm].free_cta(cta.id, &cta.smem);
             }
             !retired
         });
@@ -227,15 +208,7 @@ impl KernelEngine {
         let (bx, by, bz) = p.block;
         let thread_idxs: Vec<_> = (0..bx * by * bz).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
         let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).collect();
-        // each core's free warp slots, as many as its free regs allow; roomiest cores first
-        let mut free: Vec<Vec<(usize, usize)>> = sm
-            .cores
-            .iter()
-            .enumerate()
-            .map(|(c, core)| core.free_warps(regs).into_iter().map(|w| (c, w)).collect())
-            .collect();
-        free.sort_by_key(|slots| std::cmp::Reverse(slots.len()));
-        let slots: Vec<_> = free.concat().into_iter().take(warps.len()).collect();
+        let slots: Vec<_> = sm.free_slots(regs).into_iter().take(warps.len()).collect();
         if slots.len() < warps.len() {
             return None;
         }
