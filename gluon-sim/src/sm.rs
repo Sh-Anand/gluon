@@ -21,7 +21,6 @@ pub struct SMConfig {
     pub num_lanes: usize,
     pub regs_per_core: usize,
     pub shmem: usize,
-    pub ibuf_depth: usize, // per warp
 }
 
 impl Default for SMConfig {
@@ -33,8 +32,22 @@ impl Default for SMConfig {
             num_lanes: 16,
             regs_per_core: 256,
             shmem: 4096,
-            ibuf_depth: 4,
         }
+    }
+}
+
+/// Muon core timing, uniform across SMs
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(default)]
+pub struct CoreConfig {
+    pub ibuf_depth: usize,     // decoded instructions per warp available for issue
+    pub redirect_latency: u64, // issue of a pc-changing control op to the first issue at its target
+    pub units: UnitsConfig,    // functional unit widths and latencies
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        CoreConfig { ibuf_depth: 4, redirect_latency: 1, units: UnitsConfig::default() }
     }
 }
 
@@ -49,7 +62,7 @@ pub struct SM {
 }
 
 impl SM {
-    pub fn new(id: usize, config: SMConfig, units: UnitsConfig, muon_logger: Arc<Logger>, dram: Arc<RwLock<FlatMemory>>) -> Self {
+    pub fn new(id: usize, config: SMConfig, core: CoreConfig, muon_logger: Arc<Logger>, dram: Arc<RwLock<FlatMemory>>) -> Self {
         let muon_config = MuonConfig {
             num_cores: config.num_cores,
             num_warps: config.num_warps,
@@ -57,8 +70,9 @@ impl SM {
             num_regs: 128, // architectural regs per thread; regs_per_core is the CP-side physical budget
             start_pc: 0,
             smem_size: config.shmem,
-            ibuf_depth: config.ibuf_depth,
-            units,
+            ibuf_depth: core.ibuf_depth,
+            redirect_latency: core.redirect_latency,
+            units: core.units,
             lane_config: LaneConfig::default(),
         };
         let shared_mem = Arc::new(RwLock::new(FlatMemory::new_with_size(config.shmem, None)));

@@ -9,9 +9,14 @@ timeout_cycles = 0
 gluon_log_level = 2
 muon_log_level = 0
 
+# Muon core timing, shared by all SMs
+[glug.core]
+ibuf_depth = 4       # decoded instructions per warp available for issue
+redirect_latency = 4 # issue of a pc-changing control op to the first issue at its target
+
 # functional units, all fully pipelined: a warp-instruction takes ceil(num_lanes / lanes)
 # passes, and its rd is ready `latency` cycles after the last pass issues
-[glug.units]
+[glug.core.units]
 alu        = { lanes = 32, latency = 3 }
 mul        = { lanes = 32, latency = 36 }
 div        = { lanes = 32, latency = 37 }
@@ -28,7 +33,6 @@ num_warps = 8
 num_lanes = 32
 regs_per_core = 512
 shmem = 4096
-ibuf_depth = 4
 
 [[glug.sms]]
 id = 1
@@ -37,7 +41,6 @@ num_warps = 8
 num_lanes = 32
 regs_per_core = 512
 shmem = 8192
-ibuf_depth = 4
 
 [intake]
 command_queue_size = 4
