@@ -55,6 +55,7 @@ pub struct SM {
     pub config: SMConfig,
     pub cores: Vec<MuonCore>,
     pub running: Vec<bool>,          // per core: has warps to tick
+    pub regs_used: Vec<usize>,       // per core: regs per lane held by resident CTAs, across kernels
     pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
     smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
     pub frees: usize,                // CTAs freed so far; engines retry placement only after one
@@ -81,6 +82,7 @@ impl SM {
                 .map(|i| MuonCore::new(Arc::new(muon_config), id, i, &muon_logger, dram.clone(), shared_mem.clone()))
                 .collect(),
             running: vec![false; config.num_cores],
+            regs_used: vec![0; config.num_cores],
             errs: vec![None; config.num_cores],
             smem_used: vec![],
             frees: 0,

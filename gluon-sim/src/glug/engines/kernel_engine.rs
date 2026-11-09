@@ -134,16 +134,19 @@ impl KernelPayload {
 // a launched CTA and the SM resources it holds
 struct Cta {
     sm: usize,
-    cores: Vec<usize>,
+    warps: Vec<(usize, usize)>, // (core, warp)
     smem: Range<usize>,
+    regs: usize, // per thread
 }
 
 impl Cta {
     fn free(&self, sms: &mut [SM]) {
         let sm = &mut sms[self.sm];
-        for &core in &self.cores {
-            sm.running[core] = false;
+        for &(core, _) in &self.warps {
+            // other CTAs may still run on the core; a core that errored stays stopped
+            sm.running[core] &= sm.cores[core].scheduler.active_warp_mask() != 0;
             sm.errs[core] = None;
+            sm.regs_used[core] -= self.regs;
         }
         sm.free_smem(&self.smem);
         sm.frees += 1;
@@ -196,7 +199,7 @@ impl KernelEngine {
         let err = self
             .inflight
             .iter()
-            .find_map(|cta| cta.cores.iter().find_map(|&core| sms[cta.sm].errs[core].clone()));
+            .find_map(|cta| cta.warps.iter().find_map(|&(core, _)| sms[cta.sm].errs[core].clone()));
         if let Some(err) = err {
             self.inflight.drain(..).for_each(|cta| cta.free(sms));
             self.err = Some(Err(err));
@@ -204,7 +207,10 @@ impl KernelEngine {
             return;
         }
         self.inflight.retain(|cta| {
-            let retired = cta.cores.iter().all(|&core| sms[cta.sm].cores[core].all_warps_retired());
+            let retired = cta
+                .warps
+                .iter()
+                .all(|&(core, w)| sms[cta.sm].cores[core].scheduler.active_warp_mask() >> w & 1 == 0);
             if retired {
                 cta.free(sms);
             }
@@ -212,33 +218,38 @@ impl KernelEngine {
         });
     }
 
-    // spawn the next CTA on `sm` if it has enough free cores and smem
+    // spawn the next CTA on `sm` if its cores' free warp slots, regs and its smem hold it
     fn place(&self, sm_idx: usize, sm: &mut SM) -> Option<Cta> {
         let p = self.kernel_payload;
-        let warps_per_core = sm.config.num_warps.min(sm.config.regs_per_core / p.regs_per_thread as usize);
-        if warps_per_core == 0 {
-            return None;
-        }
-        // thread idxs grouped into warps, x fastest, packed warps_per_core to a core
+        let regs = p.regs_per_thread as usize;
+        // thread idxs grouped into warps, x fastest
         let (bx, by, bz) = p.block;
         let thread_idxs: Vec<_> = (0..bx * by * bz).map(|t| (t % bx, t / bx % by, t / (bx * by))).collect();
         let warps: Vec<_> = thread_idxs.chunks(sm.config.num_lanes).collect();
-        let chunks: Vec<_> = warps.chunks(warps_per_core).collect();
-        let cores: Vec<_> = (0..sm.config.num_cores).filter(|&c| !sm.running[c]).take(chunks.len()).collect();
-        if cores.len() < chunks.len() {
+        // each core's free warp slots, as many as its free regs allow; roomiest cores first
+        let mut free: Vec<Vec<(usize, usize)>> = (0..sm.config.num_cores)
+            .map(|c| {
+                let active = sm.cores[c].scheduler.active_warp_mask();
+                let room = (sm.config.regs_per_core - sm.regs_used[c]) / regs;
+                (0..sm.config.num_warps).filter(|&w| active >> w & 1 == 0).take(room).map(|w| (c, w)).collect()
+            })
+            .collect();
+        free.sort_by_key(|slots| std::cmp::Reverse(slots.len()));
+        let slots: Vec<_> = free.concat().into_iter().take(warps.len()).collect();
+        if slots.len() < warps.len() {
             return None;
         }
         let smem = sm.alloc_smem(p.shmem_per_block as usize)?;
         let (gx, gy, _) = p.grid;
         let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
         let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
-        for (&core, chunk) in cores.iter().zip(chunks) {
-            let slots: Vec<_> = chunk.iter().map(|warp| warp.to_vec()).enumerate().collect();
-            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slots, bp, smem.start as u32);
+        for (&(core, w), threads) in slots.iter().zip(warps) {
+            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &[(w, threads.to_vec())], bp, smem.start as u32);
             sm.running[core] = true;
+            sm.regs_used[core] += regs;
         }
-        info!(self.logger, "Spawning block_idx {:?} on sm {} cores {:?}", block_idx, sm_idx, cores);
-        Some(Cta { sm: sm_idx, cores, smem })
+        info!(self.logger, "Spawning block_idx {:?} on sm {} (core, warp) {:?}", block_idx, sm_idx, slots);
+        Some(Cta { sm: sm_idx, warps: slots, smem, regs })
     }
 }
 
@@ -291,9 +302,11 @@ impl Engine for KernelEngine {
         if self.blocked_at == Some(frees) {
             return Ok(());
         }
-        // place CTAs in order until the next one fits nowhere
+        // place CTAs in order until the next one fits nowhere; CTA i tries SMs from i % num_sms on
         while self.tb_ctr < self.total_tb {
-            let Some(cta) = sms.iter_mut().enumerate().find_map(|(idx, sm)| self.place(idx, sm)) else {
+            let n = sms.len();
+            let first = self.tb_ctr as usize % n;
+            let Some(cta) = (0..n).map(|k| (first + k) % n).find_map(|idx| self.place(idx, &mut sms[idx])) else {
                 self.blocked_at = Some(frees);
                 break;
             };
