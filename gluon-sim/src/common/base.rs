@@ -159,6 +159,11 @@ impl Cycles {
         self.total += 1;
         self.core += core as u64;
     }
+
+    /// the global clock: every core times itself against it
+    pub fn total(&self) -> u64 {
+        self.total
+    }
 }
 
 impl std::fmt::Display for Cycles {

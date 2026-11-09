@@ -139,7 +139,8 @@ impl Clocked for GLUG {
         let cores_busy = self.sms.iter().any(SM::busy);
         let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
         let core_start = Instant::now();
-        self.sms.iter_mut().for_each(|sm| sm.tick());
+        let now = self.cycles.total();
+        self.sms.iter_mut().for_each(|sm| sm.tick(now));
         let core_time = core_start.elapsed();
 
         // Service Mem requests

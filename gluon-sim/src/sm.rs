@@ -2,7 +2,6 @@ use std::ops::Range;
 use std::sync::{Arc, RwLock};
 
 use cyclotron::{
-    base::behavior::ModuleBehaviors,
     muon::{
         config::{LaneConfig, MuonConfig, UnitsConfig},
         core::MuonCore,
@@ -117,7 +116,7 @@ impl SM {
         self.running.contains(&true)
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, now: u64) {
         if !self.busy() {
             return;
         }
@@ -127,8 +126,7 @@ impl SM {
             .zip(self.errs.iter_mut())
             .filter(|((_, running), _)| **running)
             .for_each(|((core, running), err)| {
-                core.tick_one();
-                if let Err(e) = core.process() {
+                if let Err(e) = core.process(now) {
                     *err = Some(e);
                     *running = false;
                 }
