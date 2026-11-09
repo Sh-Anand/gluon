@@ -4,7 +4,8 @@ use crate::glug::dispatch::{Dispatch, DispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::intake::{Intake, IntakeConfig};
 use crate::glug::stream::{Stream, StreamConfig};
-use crate::sm::{CoreConfig, SMConfig, SM};
+use crate::sm::{CoreConfig, SMConfig};
+use cyclotron::muon::sm::SM;
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
 use cyclotron::muon::stats::CoreStats;
@@ -85,7 +86,7 @@ impl Configurable<GLUGConfig> for GLUG {
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, sm)| SM::new(idx, sm, config.core, muon_logger.clone(), dram.clone()))
+            .map(|(idx, sm)| SM::new(idx, sm.muon_config(&config.core), &muon_logger, dram.clone()))
             .collect::<Vec<_>>();
 
         let engines = engine_config.generate_engines(logger.clone());

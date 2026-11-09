@@ -9,7 +9,7 @@ use crate::common::base::MemResp;
 use crate::common::base::SimErr;
 use crate::glug::engine::Engine;
 use crate::glug::engine::EngineCommand;
-use crate::sm::SM;
+use cyclotron::muon::sm::SM;
 use cyclotron::info;
 use cyclotron::muon::core::CtaId;
 use cyclotron::muon::warp::ExecErr;
@@ -232,7 +232,7 @@ impl KernelEngine {
             .cores
             .iter()
             .enumerate()
-            .map(|(c, core)| core.free_warps(regs, sm.config.regs_per_core).into_iter().map(|w| (c, w)).collect())
+            .map(|(c, core)| core.free_warps(regs).into_iter().map(|w| (c, w)).collect())
             .collect();
         free.sort_by_key(|slots| std::cmp::Reverse(slots.len()));
         let slots: Vec<_> = free.concat().into_iter().take(warps.len()).collect();

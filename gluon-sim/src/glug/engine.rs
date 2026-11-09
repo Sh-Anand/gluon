@@ -6,7 +6,7 @@ use crate::glug::engines::{
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
-use crate::sm::SM;
+use cyclotron::muon::sm::SM;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
 use serde::Deserialize;

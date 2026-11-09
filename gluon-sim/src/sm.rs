@@ -1,14 +1,4 @@
-use std::ops::Range;
-use std::sync::{Arc, RwLock};
-
-use cyclotron::{
-    muon::{
-        config::{LaneConfig, MuonConfig, UnitsConfig},
-        core::MuonCore,
-        warp::ExecErr,
-    },
-    sim::{log::Logger, flat_mem::FlatMemory},
-};
+use cyclotron::muon::config::{LaneConfig, MuonConfig, UnitsConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -50,78 +40,21 @@ impl Default for CoreConfig {
     }
 }
 
-// cores sharing one smem; kernel engines launch onto and retire from it directly
-pub struct SM {
-    pub config: SMConfig,
-    pub cores: Vec<MuonCore>,
-    pub errs: Vec<Option<ExecErr>>,  // per core: error that stopped it
-    smem_used: Vec<Range<usize>>,    // allocated smem ranges, sorted by start
-    pub frees: usize,                // CTAs freed so far; engines retry placement only after one
-}
-
-impl SM {
-    pub fn new(id: usize, config: SMConfig, core: CoreConfig, muon_logger: Arc<Logger>, dram: Arc<RwLock<FlatMemory>>) -> Self {
-        let muon_config = MuonConfig {
-            num_cores: config.num_cores,
-            num_warps: config.num_warps,
-            num_lanes: config.num_lanes,
-            num_regs: 128, // architectural regs per thread; regs_per_core is the CP-side physical budget
+impl SMConfig {
+    /// the Muon cores' config for this SM under the uniform core timing
+    pub fn muon_config(&self, core: &CoreConfig) -> MuonConfig {
+        MuonConfig {
+            num_cores: self.num_cores,
+            num_warps: self.num_warps,
+            num_lanes: self.num_lanes,
+            num_regs: 128, // architectural regs per thread
+            regs_per_core: self.regs_per_core,
             start_pc: 0,
-            smem_size: config.shmem,
+            smem_size: self.shmem,
             ibuf_depth: core.ibuf_depth,
             redirect_latency: core.redirect_latency,
             units: core.units,
             lane_config: LaneConfig::default(),
-        };
-        let shared_mem = Arc::new(RwLock::new(FlatMemory::new_with_size(config.shmem, None)));
-        SM {
-            config,
-            cores: (0..config.num_cores)
-                .map(|i| MuonCore::new(Arc::new(muon_config), id, i, &muon_logger, dram.clone(), shared_mem.clone()))
-                .collect(),
-            errs: vec![None; config.num_cores],
-            smem_used: vec![],
-            frees: 0,
-        }
-    }
-
-    // first fit: the lowest gap between allocations that holds `len` bytes
-    pub fn alloc_smem(&mut self, len: usize) -> Option<Range<usize>> {
-        if len == 0 {
-            return Some(0..0);
-        }
-        let mut base = 0;
-        let idx = match self.smem_used.iter().position(|used| {
-            let fits = used.start - base >= len;
-            if !fits {
-                base = used.end;
-            }
-            fits
-        }) {
-            Some(idx) => idx,
-            None if self.config.shmem - base >= len => self.smem_used.len(),
-            None => return None,
-        };
-        self.smem_used.insert(idx, base..base + len);
-        Some(base..base + len)
-    }
-
-    pub fn free_smem(&mut self, range: &Range<usize>) {
-        self.smem_used.retain(|used| used != range);
-    }
-
-    pub fn busy(&self) -> bool {
-        self.cores.iter().zip(&self.errs).any(|(core, err)| err.is_none() && core.scheduler.active_warp_mask() != 0)
-    }
-
-    pub fn tick(&mut self, now: u64) {
-        // cores with running warps; a core that errored stops until its CTAs are freed
-        for (core, err) in self.cores.iter_mut().zip(self.errs.iter_mut()) {
-            if err.is_none() && core.scheduler.active_warp_mask() != 0 {
-                if let Err(e) = core.process(now) {
-                    *err = Some(e);
-                }
-            }
         }
     }
 }
