@@ -7,6 +7,7 @@ use crate::glug::stream::{Stream, StreamConfig};
 use crate::sm::{CoreConfig, SMConfig, SM};
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
+use cyclotron::muon::stats::CoreStats;
 use cyclotron::sim::config::MemConfig;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
@@ -123,6 +124,9 @@ impl Clocked for GLUG {
                     "sim total: {}, {:.3?} (cyclotron {:.3?}, gluon {:.3?})",
                     self.cycles, self.sim_time, self.core_time, self.sim_time - self.core_time
                 );
+                let mut stats = CoreStats::default();
+                self.sms.iter().flat_map(|sm| &sm.cores).for_each(|core| stats.add(&core.stats));
+                println!("{stats}");
             }
         });
 
