@@ -35,6 +35,7 @@ pub struct KernelEngineConfig {}
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KernelCommand {
     pub sid: u8,
+    pub cmd_id: u64,
     pub host_addr: u64,
     pub sz: u32,
     pub gpu_addr: u32,
@@ -50,6 +51,7 @@ impl KernelCommand {
 
         KernelCommand {
             sid: cmd.sid(),
+            cmd_id: cmd.cmd_id(),
             host_addr,
             sz,
             gpu_addr,
@@ -242,9 +244,9 @@ impl KernelEngine {
         let smem = sm.alloc_smem(p.shmem_per_block as usize)?;
         let (gx, gy, _) = p.grid;
         let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
-        let bp = self.cmd.expect("Unreachable: Kernel command not set").gpu_addr;
+        let cmd = self.cmd.expect("Unreachable: Kernel command not set");
         for (&(core, w), threads) in slots.iter().zip(warps) {
-            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &[(w, threads.to_vec())], bp, smem.start as u32);
+            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &[(w, threads.to_vec())], cmd.gpu_addr, smem.start as u32, cmd.cmd_id);
             sm.running[core] = true;
             sm.regs_used[core] += regs;
         }

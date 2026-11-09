@@ -254,7 +254,9 @@ impl Clocked for GLUG {
 
         if !decode_push_candidates.is_empty() {
             let x = &decode_push_candidates[self.sq_idx % decode_push_candidates.len()];
-            self.dispatch.enqueue(self.stream.try_pop(*x as u8).expect("impossible"));
+            // unique command id: stream id in the top byte, the stream's command count below
+            let cmd_id = (*x as u64) << 56 | self.stream.sqs[*x].cmd_id;
+            self.dispatch.enqueue(self.stream.try_pop(*x as u8).expect("impossible"), cmd_id);
         }
 
         // Tick intake

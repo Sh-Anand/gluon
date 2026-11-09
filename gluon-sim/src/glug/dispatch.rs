@@ -64,7 +64,7 @@ impl Dispatch {
             .any(|eq| !eq.q.full())
     }
 
-    pub fn enqueue(&mut self, cmd: Command) {
+    pub fn enqueue(&mut self, cmd: Command, cmd_id: u64) {
         if let Some(engine_queue) = self
             .qs
             .iter_mut()
@@ -72,7 +72,7 @@ impl Dispatch {
         {
             engine_queue
                 .q
-                .push(EngineCommand::from_command(cmd));
+                .push(EngineCommand::from_command(cmd, cmd_id));
         }
     }
 }
