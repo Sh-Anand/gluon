@@ -1,4 +1,4 @@
-use cyclotron::muon::config::{LaneConfig, MuonConfig, UnitsConfig};
+use cyclotron::muon::config::{MuonConfig, UnitsConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -49,12 +49,11 @@ impl SMConfig {
             num_lanes: self.num_lanes,
             num_regs: 128, // architectural regs per thread
             regs_per_core: self.regs_per_core,
-            start_pc: 0,
             smem_size: self.shmem,
             ibuf_depth: core.ibuf_depth,
             redirect_latency: core.redirect_latency,
             units: core.units,
-            lane_config: LaneConfig::default(),
+            ..MuonConfig::default()
         }
     }
 }
