@@ -13,7 +13,7 @@ use cyclotron::sim::config::MemConfig;
 use cyclotron::sim::log::Logger;
 use cyclotron::sim::flat_mem::FlatMemory;
 use serde::Deserialize;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Default, Clone, Deserialize)]
@@ -49,7 +49,7 @@ pub struct GLUG {
     sim_time: Duration,
     core_time: Duration, // inside cyclotron
 
-    dram: Arc<RwLock<FlatMemory>>,
+    dram: FlatMemory,
 
     logger: Arc<Logger>,
     host_pid: libc::pid_t,
@@ -76,8 +76,7 @@ impl Configurable<GLUGConfig> for GLUG {
     fn new(config: &GLUGConfig) -> Self {
         let engine_config = config.engine.clone();
 
-        let flat_mem = FlatMemory::new(Some(MemConfig::default()));
-        let dram = Arc::new(RwLock::new(flat_mem));
+        let dram = FlatMemory::new(Some(MemConfig::default()));
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
 
@@ -86,7 +85,7 @@ impl Configurable<GLUGConfig> for GLUG {
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, sm)| SM::new(idx, sm.muon_config(&config.core), &muon_logger, dram.clone()))
+            .map(|(idx, sm)| SM::new(idx, sm.muon_config(&config.core), &muon_logger))
             .collect::<Vec<_>>();
 
         let engines = engine_config.generate_engines(logger.clone());
@@ -141,7 +140,7 @@ impl Clocked for GLUG {
         let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
         let core_start = Instant::now();
         let now = self.cycles.total();
-        self.sms.iter_mut().for_each(|sm| sm.tick(now));
+        self.sms.iter_mut().for_each(|sm| sm.tick(now, &mut self.dram));
         let core_time = core_start.elapsed();
 
         // Service Mem requests
@@ -151,7 +150,7 @@ impl Clocked for GLUG {
             .find(|engine| engine.get_mem_req().is_some())
         {
             let mem_req = engine.get_mem_req().expect("Mem: unreachable");
-            let mut dram = self.dram.write().expect("gmem poisoned");
+            let dram = &mut self.dram;
             info!(self.logger, "Served mem {:?}", mem_req);
             if mem_req.write {
                 dram.write(mem_req.addr as usize, &mem_req.data).expect("gmem write errored");
@@ -171,7 +170,7 @@ impl Clocked for GLUG {
             let dma_req = engine.get_dma_req().expect("DMA: unreachable");
             match dma_req.dir {
                 DMADir::H2D => {
-                    let mut dram = self.dram.write().expect("gmem poisoned");
+                    let dram = &mut self.dram;
 
                     let mut data = vec![0u8; dma_req.sz as usize];
                     let read_pid = if dma_req.host_runtime { self.host_pid } else { self.driver_pid };
@@ -192,7 +191,7 @@ impl Clocked for GLUG {
                 }
 
                 DMADir::D2H => {
-                    let dram = self.dram.read().expect("gmem poisoned");
+                    let dram = &self.dram;
                     let data = dram.read(dma_req.src_addr as usize, dma_req.sz as usize).expect("gmem read errored");
                     if self.host_pid > 0 {
                         let local = libc::iovec {
