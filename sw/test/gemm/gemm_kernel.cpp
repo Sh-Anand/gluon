@@ -1,8 +1,8 @@
 #include <rad_defs.h>
 
-#define TILE 8
+#define TILE 16
 
-// one thread per element of C = A * B; A is MxK, B is KxN, all row-major
+// one thread per element of C = A * B; A is MxK, B is KxN, all row-major, K a multiple of TILE
 extern "C" void gemm_kernel(const int *A, const int *B, int *C, int N, int K) {
     unsigned tx, ty, bx, by;
     asm volatile("csrr %0, %1" : "=r"(tx) : "i"(CSR_THREAD_IDX_X));
@@ -12,7 +12,8 @@ extern "C" void gemm_kernel(const int *A, const int *B, int *C, int N, int K) {
 
     unsigned row = by * TILE + ty, col = bx * TILE + tx;
     int acc = 0;
-    for (int k = 0; k < K; k++)
-        acc += A[row * K + k] * B[k * N + col];
+    for (int k0 = 0; k0 < K; k0 += TILE) // inner loop unrolled TILE times
+        for (int k = 0; k < TILE; k++)
+            acc += A[row * K + k0 + k] * B[(k0 + k) * N + col];
     C[row * N + col] = acc;
 }

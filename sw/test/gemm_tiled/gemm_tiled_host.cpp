@@ -2,7 +2,7 @@
 #include "rad.h"
 
 int main() {
-    const unsigned M = 160, N = 160, K = 160, TILE = 8;
+    const unsigned M = 160, N = 160, K = 160, TILE = 16;
 
     static int A[M * K], B[K * N], C[M * N];
     for (unsigned i = 0; i < M * K; i++) A[i] = i % 7 - 3;

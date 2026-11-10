@@ -1,6 +1,6 @@
 #include <rad_defs.h>
 
-#define TILE 8
+#define TILE 16
 
 extern __shared int smem[];
 
