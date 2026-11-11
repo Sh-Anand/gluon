@@ -30,7 +30,6 @@ impl Default for SMConfig {
 #[serde(default)]
 pub struct CoreConfig {
     pub ibuf_depth: usize,     // decoded instructions per warp available for issue
-    pub redirect_latency: u64, // issue of a pc-changing control op to the first issue at its target
     pub units: UnitsConfig,    // functional unit widths and latencies
     pub smem: SmemConfig,      // shared memory banks and latencies
     pub gmem: GmemConfig,      // global memory cache levels
@@ -38,7 +37,7 @@ pub struct CoreConfig {
 
 impl Default for CoreConfig {
     fn default() -> Self {
-        CoreConfig { ibuf_depth: 4, redirect_latency: 1, units: UnitsConfig::default(), smem: SmemConfig::default(), gmem: GmemConfig::default() }
+        CoreConfig { ibuf_depth: 4, units: UnitsConfig::default(), smem: SmemConfig::default(), gmem: GmemConfig::default() }
     }
 }
 
@@ -53,7 +52,6 @@ impl SMConfig {
             regs_per_core: self.regs_per_core,
             smem_size: self.shmem,
             ibuf_depth: core.ibuf_depth,
-            redirect_latency: core.redirect_latency,
             units: core.units,
             smem: core.smem,
             gmem: core.gmem,

@@ -12,7 +12,6 @@ muon_log_level = 0
 # Muon core timing, shared by all SMs
 [glug.core]
 ibuf_depth = 4       # decoded instructions per warp available for issue
-redirect_latency = 4 # issue of a pc-changing control op to the first issue at its target
 
 # functional units, all fully pipelined: a warp-instruction takes ceil(num_lanes / lanes)
 # passes, and its rd is ready `latency` cycles after the last pass issues
