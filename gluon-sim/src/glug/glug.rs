@@ -5,6 +5,7 @@ use crate::glug::engine::{Engine, EngineConfig};
 use crate::glug::intake::{Intake, IntakeConfig};
 use crate::glug::stream::{Stream, StreamConfig};
 use crate::sm::{CoreConfig, SMConfig};
+use cyclotron::muon::cache::{self, Cache};
 use cyclotron::muon::sm::SM;
 use cyclotron::base::mem::HasMemory;
 use cyclotron::info;
@@ -50,6 +51,7 @@ pub struct GLUG {
     core_time: Duration, // inside cyclotron
 
     dram: FlatMemory,
+    caches: Vec<Cache>, // global memory caches: the L2, then each SM's L1 and L0s
 
     logger: Arc<Logger>,
     host_pid: libc::pid_t,
@@ -80,12 +82,14 @@ impl Configurable<GLUGConfig> for GLUG {
         let logger = Arc::new(Logger::new(config.gluon_log_level));
         let muon_logger = Arc::new(Logger::new(config.muon_log_level));
 
+        let mut caches = vec![];
+        let l2 = cache::add(&mut caches, config.core.gmem.l2, None);
         let sms = config
             .sms
             .iter()
             .copied()
             .enumerate()
-            .map(|(idx, sm)| SM::new(idx, sm.muon_config(&config.core), &muon_logger))
+            .map(|(idx, sm)| SM::new(idx, sm.muon_config(&config.core), &muon_logger, &mut caches, l2))
             .collect::<Vec<_>>();
 
         let engines = engine_config.generate_engines(logger.clone());
@@ -104,6 +108,7 @@ impl Configurable<GLUGConfig> for GLUG {
             sim_time: Duration::ZERO,
             core_time: Duration::ZERO,
             dram,
+            caches,
             logger,
             host_pid: config.host_pid,
             driver_pid: config.driver_pid,
@@ -140,7 +145,7 @@ impl Clocked for GLUG {
         let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
         let core_start = Instant::now();
         let now = self.cycles.total();
-        self.sms.iter_mut().for_each(|sm| sm.tick(now, &mut self.dram));
+        self.sms.iter_mut().for_each(|sm| sm.tick(now, &mut self.dram, &mut self.caches));
         let core_time = core_start.elapsed();
 
         // Service Mem requests
