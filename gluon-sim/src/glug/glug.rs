@@ -132,6 +132,10 @@ impl Clocked for GLUG {
                 let mut stats = CoreStats::default();
                 self.sms.iter().flat_map(|sm| &sm.cores).for_each(|core| stats.add(&core.stats));
                 println!("{stats}");
+                let mut levels = [(0u64, 0u64); 3]; // (accesses, misses) of the L2, the L1s and the L0s
+                self.caches.iter().for_each(|c| levels[c.depth] = (levels[c.depth].0 + c.accesses, levels[c.depth].1 + c.misses));
+                let level = |(l, (a, m)): (usize, &(u64, u64))| format!(" | L{l} {a} accesses, {m} misses ({:.1}%)", 100.0 * *m as f64 / (*a).max(1) as f64);
+                println!("cache stats{}", levels.iter().rev().enumerate().map(level).collect::<String>());
             }
         });
 
