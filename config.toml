@@ -37,9 +37,10 @@ per_bank_latency = 1
 # miss_latency on top of the next level's access (the L2's includes the DRAM round trip) and
 # holds the link to the next level for bus_cycles
 [glug.core.gmem]
-l0 = { sets = 64,   ways = 1, line = 128, mshrs = 4, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
-l1 = { sets = 512,  ways = 4, line = 32,  mshrs = 8, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
-l2 = { sets = 2048, ways = 8, line = 32,  mshrs = 8, hit_latency = 6, miss_latency = 40, bus_cycles = 4 }
+line = 128 # bytes, the same at every level
+l0 = { sets = 64,  ways = 1, mshrs = 4, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
+l1 = { sets = 128, ways = 4, mshrs = 8, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
+l2 = { sets = 512, ways = 8, mshrs = 8, hit_latency = 6, miss_latency = 40, bus_cycles = 16 }
 
 [[glug.sms]]
 id = 0
