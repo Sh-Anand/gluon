@@ -1,4 +1,4 @@
-use cyclotron::muon::config::{MuonConfig, SmemConfig, UnitsConfig};
+use cyclotron::muon::config::{GmemConfig, MuonConfig, SmemConfig, UnitsConfig};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -33,11 +33,12 @@ pub struct CoreConfig {
     pub redirect_latency: u64, // issue of a pc-changing control op to the first issue at its target
     pub units: UnitsConfig,    // functional unit widths and latencies
     pub smem: SmemConfig,      // shared memory banks and latencies
+    pub gmem: GmemConfig,      // global memory cache levels
 }
 
 impl Default for CoreConfig {
     fn default() -> Self {
-        CoreConfig { ibuf_depth: 4, redirect_latency: 1, units: UnitsConfig::default(), smem: SmemConfig::default() }
+        CoreConfig { ibuf_depth: 4, redirect_latency: 1, units: UnitsConfig::default(), smem: SmemConfig::default(), gmem: GmemConfig::default() }
     }
 }
 
@@ -55,6 +56,7 @@ impl SMConfig {
             redirect_latency: core.redirect_latency,
             units: core.units,
             smem: core.smem,
+            gmem: core.gmem,
             ..MuonConfig::default()
         }
     }

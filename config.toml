@@ -24,7 +24,7 @@ fp         = { lanes = 16, latency = 5 }
 fp_divsqrt = { lanes = 4,  latency = 16 }
 fp_exp     = { lanes = 8,  latency = 9 }
 sfu        = { lanes = 32, latency = 3 }
-lsu        = { lanes = 32, latency = 4 }
+lsu        = { lanes = 32, latency = 10 }
 
 # shared memory: an SM serves one request at a time, holding its banks for per_bank_latency
 # per distinct word in the request's fullest bank; a load's rd is ready startup_latency after
@@ -32,6 +32,14 @@ lsu        = { lanes = 32, latency = 4 }
 banks = 32
 startup_latency = 8
 per_bank_latency = 1
+
+# global memory: L0 per core, L1 per SM, L2 shared by all SMs and backed by DRAM. A miss costs
+# miss_latency on top of the next level's access (the L2's includes the DRAM round trip) and
+# holds the link to the next level for bus_cycles
+[glug.core.gmem]
+l0 = { sets = 64,   ways = 1, line = 128, mshrs = 4, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
+l1 = { sets = 512,  ways = 4, line = 32,  mshrs = 8, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
+l2 = { sets = 2048, ways = 8, line = 32,  mshrs = 8, hit_latency = 6, miss_latency = 40, bus_cycles = 4 }
 
 [[glug.sms]]
 id = 0
