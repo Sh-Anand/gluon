@@ -32,14 +32,15 @@ banks = 32
 startup_latency = 8
 per_bank_latency = 1
 
-# global memory: L0 per core, L1 per SM, L2 shared by all SMs and backed by DRAM. A miss costs
+# global memory: L0 per core for instructions, L1 per SM (the first level for data), L2 shared by
+# all SMs and backed by DRAM. A miss costs
 # miss_latency on top of the next level's access (the L2's includes the DRAM round trip) and
 # holds the link to the next level for bus_cycles
 [glug.core.gmem]
 line = 128 # bytes, the same at every level
-l0 = { sets = 64,  ways = 1, mshrs = 4, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
-l1 = { sets = 128, ways = 4, mshrs = 8, hit_latency = 2, miss_latency = 9,  bus_cycles = 0 }
-l2 = { sets = 512, ways = 8, mshrs = 8, hit_latency = 6, miss_latency = 40, bus_cycles = 16 }
+l0 = { sets = 64,  ways = 1, mshrs = 4, hit_latency = 0, miss_latency = 9,  bus_cycles = 0 }
+l1 = { sets = 128, ways = 4, mshrs = 8, hit_latency = 12, miss_latency = 30, bus_cycles = 0 }
+l2 = { sets = 512, ways = 8, mshrs = 8, hit_latency = 15, miss_latency = 80, bus_cycles = 16 }
 
 [[glug.sms]]
 id = 0
