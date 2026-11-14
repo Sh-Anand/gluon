@@ -17,7 +17,7 @@ ibuf_depth = 4       # decoded instructions per warp available for issue
 # passes, and its rd is ready `latency` cycles after the last pass issues
 [glug.core.units]
 alu        = { lanes = 32, latency = 3 }
-mul        = { lanes = 32, latency = 36 }
+mul        = { lanes = 32, latency = 4 }
 div        = { lanes = 32, latency = 37 }
 fp         = { lanes = 16, latency = 5 }
 fp_divsqrt = { lanes = 4,  latency = 16 }
