@@ -44,15 +44,15 @@ l2 = { sets = 512, ways = 8, mshrs = 8, hit_latency = 15, miss_latency = 80, bus
 
 [[glug.sms]]
 id = 0
-num_cores = 2
+num_cores = 4
 num_warps = 8
 num_lanes = 32
 regs_per_core = 512
-shmem = 4096
+shmem = 8192
 
 [[glug.sms]]
 id = 1
-num_cores = 2
+num_cores = 4
 num_warps = 8
 num_lanes = 32
 regs_per_core = 512
