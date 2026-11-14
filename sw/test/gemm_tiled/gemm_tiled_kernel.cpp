@@ -7,11 +7,7 @@ extern __shared int smem[];
 // one thread per element of C = A * B, staging TILE x TILE tiles of A and B in smem;
 // A is MxK, B is KxN, all row-major, K a multiple of TILE
 extern "C" void gemm_tiled_kernel(const int *A, const int *B, int *C, int N, int K) {
-    unsigned tx, ty, bx, by;
-    asm volatile("csrr %0, %1" : "=r"(tx) : "i"(CSR_THREAD_IDX_X));
-    asm volatile("csrr %0, %1" : "=r"(ty) : "i"(CSR_THREAD_IDX_Y));
-    asm volatile("csrr %0, %1" : "=r"(bx) : "i"(CSR_BLOCK_IDX_X));
-    asm volatile("csrr %0, %1" : "=r"(by) : "i"(CSR_BLOCK_IDX_Y));
+    unsigned tx = rad_thread_idx_x(), ty = rad_thread_idx_y(), bx = rad_block_idx_x(), by = rad_block_idx_y();
 
     __shared int *As = smem, *Bs = smem + TILE * TILE;
     unsigned row = by * TILE + ty, col = bx * TILE + tx;

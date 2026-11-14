@@ -4,8 +4,7 @@
 extern __shared int smem[];
 
 extern "C" void smem_kernel(int a, int b, int c, int *out) {
-    unsigned bx;
-    asm volatile("csrr %0, %1" : "=r"(bx) : "i"(CSR_BLOCK_IDX_X));
+    unsigned bx = rad_block_idx_x();
 
     // volatile so the reads below actually come from smem
     volatile __shared int *s = smem;

@@ -4,11 +4,7 @@
 
 // one thread per element of C = A * B; A is MxK, B is KxN, all row-major, K a multiple of TILE
 extern "C" void gemm_kernel(const int *A, const int *B, int *C, int N, int K) {
-    unsigned tx, ty, bx, by;
-    asm volatile("csrr %0, %1" : "=r"(tx) : "i"(CSR_THREAD_IDX_X));
-    asm volatile("csrr %0, %1" : "=r"(ty) : "i"(CSR_THREAD_IDX_Y));
-    asm volatile("csrr %0, %1" : "=r"(bx) : "i"(CSR_BLOCK_IDX_X));
-    asm volatile("csrr %0, %1" : "=r"(by) : "i"(CSR_BLOCK_IDX_Y));
+    unsigned tx = rad_thread_idx_x(), ty = rad_thread_idx_y(), bx = rad_block_idx_x(), by = rad_block_idx_y();
 
     unsigned row = by * TILE + ty, col = bx * TILE + tx;
     int acc = 0;
