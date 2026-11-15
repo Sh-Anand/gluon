@@ -116,10 +116,15 @@ impl Configurable<GLUGConfig> for GLUG {
     }
 }
 
+/// Wall-clock time is measured on one run of 256 consecutive ticks in this many and scaled up; reading
+/// the clock on every tick is a measurable share of the run, and on an isolated tick the read is cold
+/// and overstates it.  Prime, so it does not lock onto a loop in the workload.
+const TIMED_EVERY: u64 = 61;
+
 impl Clocked for GLUG {
     fn tick(&mut self) -> Result<(), SimErr> {
         // TODO: Report erroring threadid
-        let start = Instant::now();
+        let start = ((self.cycles.total() >> 8) % TIMED_EVERY == 0).then(Instant::now);
 
         // Enqueue engine completions
         self.engines.iter_mut().for_each(|engine| {
@@ -147,10 +152,10 @@ impl Clocked for GLUG {
         // Tick SMs
         let cores_busy = self.sms.iter().any(SM::busy);
         let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
-        let core_start = Instant::now();
+        let core_start = start.map(|_| Instant::now());
         let now = self.cycles.total();
         self.sms.iter_mut().for_each(|sm| sm.tick(now, &mut self.dram, &mut self.caches));
-        let core_time = core_start.elapsed();
+        let core_time = core_start.map(|t| t.elapsed());
 
         // Service Mem requests
         if let Some(engine) = self
@@ -293,8 +298,10 @@ impl Clocked for GLUG {
 
         if busy {
             self.cycles.tick(cores_busy);
-            self.sim_time += start.elapsed();
-            self.core_time += core_time;
+            if let (Some(start), Some(core_time)) = (start, core_time) {
+                self.sim_time += start.elapsed() * TIMED_EVERY as u32;
+                self.core_time += core_time * TIMED_EVERY as u32;
+            }
         }
 
         Ok(())
