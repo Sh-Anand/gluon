@@ -29,6 +29,9 @@ REPO_ROOT := $(abspath ../..)
 KERNEL_CFLAGS := $(RISCV_FLAGS) -I$(REPO_ROOT)/sw/driver/include -I$(REPO_ROOT)/sw/libmuon/gluon/include
 KERNEL_CFLAGS += -O3 -fno-builtin-memset -fno-builtin-memcpy -ffunction-sections -fdata-sections -fPIC -fno-unwind-tables -fno-asynchronous-unwind-tables
 KERNEL_CFLAGS += -Wall -Wextra -Xclang -target-feature -Xclang +vortex
+# lane-interleaved stack; must match STACK_WORD_STRIDE in rad_defs.h, and the runtimes linked in
+KERNEL_CFLAGS += -mllvm -riscv-stack-word-stride=32
+STRIDE_LIBS := $(MUON_32)/lib/$(RISCV_TRIPLE)/stride32
 KERNEL_LDFLAGS := $(RISCV_FLAGS) -fuse-ld=lld -nostdlib -Wl,-melf32lriscv -Wl,-pie \
     -L$(MUON_32)/lib/$(RISCV_TRIPLE) -L$(CLANG_RESOURCE_DIR)/lib/$(RISCV_TRIPLE)
 HOST_INCLUDES := -I../driver/utils/ -I../driver/include -I../libmuon/gluon/include
@@ -53,7 +56,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC) | $(BUILD_DIR)
 	$(MUON_CLANG) $(KERNEL_CFLAGS) -c $< -o $@
 
 $(KERNEL_ELF): $(KERNEL_OBJ) $(LIBMUON_A) | $(BUILD_DIR)
-	$(MUON_CLANG) $(KERNEL_LDFLAGS) -o $@ $< $(LIBMUON_A) $(MUON_32)/lib/clang/18/lib/$(RISCV_TRIPLE)/libclang_rt.builtins.a
+	$(MUON_CLANG) $(KERNEL_LDFLAGS) -o $@ $< $(LIBMUON_A) $(STRIDE_LIBS)/libclang_rt.builtins.a
 
 $(KERNEL_DISASM): $(KERNEL_ELF)
 	$(MUON_OBJDUMP) -d --triple=$(RISCV_TRIPLE) -M no-aliases $< > $@
