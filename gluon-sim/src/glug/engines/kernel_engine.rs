@@ -154,6 +154,7 @@ pub struct KernelEngine {
     total_tb: u32,
     inflight: Vec<Cta>,
     blocked_at: Option<usize>, // SM frees seen when placement last failed
+    retired_at: u64, // SM events seen when CTAs were last checked
     cycles: Cycles, // since the command arrived
 
     err: Option<Result<(), ExecErr>>,
@@ -174,6 +175,7 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
             total_tb: 0,
             inflight: vec![],
             blocked_at: None,
+            retired_at: 0,
             cycles: Cycles::default(),
             err: None,
             logger: Arc::new(Logger::new(0)),
@@ -184,6 +186,11 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
 impl KernelEngine {
     // free retired CTAs; an error on any core kills the whole kernel
     fn retire(&mut self, sms: &mut [SM]) {
+        let events = sms.iter().map(|sm| sm.events).sum();
+        if self.retired_at == events {
+            return;
+        }
+        self.retired_at = events;
         let err = self.inflight.iter().find_map(|cta| sms[cta.sm].cta_err(cta.id));
         if let Some(err) = err {
             self.inflight.drain(..).for_each(|cta| sms[cta.sm].free_cta(cta.id, &cta.smem));
