@@ -83,16 +83,6 @@ void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data) {
         throw std::runtime_error("Failed to allocate device memory for kernel payload");
     uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
 
-    auto stack_base_addr_opt = allocateDeviceMemory(KERNEL_STACK_SIZE);
-    if (!stack_base_addr_opt)
-        return;
-    uint32_t stack_base_addr = *stack_base_addr_opt + KERNEL_STACK_SIZE - 4;
-
-    auto tls_base_addr_opt = allocateDeviceMemory(KERNEL_TLS_SIZE);
-    if (!tls_base_addr_opt)
-        return;
-    uint32_t tls_base_addr = *tls_base_addr_opt;
-
     std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
     if (!payload)
         return;
@@ -101,8 +91,7 @@ void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data) {
     if (!writer.write_u32(req->start_pc) ||
         !writer.write_u32(req->kernel_pc) ||
         !writer.write_u32(req->params_size) ||
-        !writer.write_u32(stack_base_addr) ||
-        !writer.write_u32(tls_base_addr) ||
+        !writer.write_zero(8) || // stack and tls base: unused, _start takes both from its hardware slot
         !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.x)) ||
         !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.y)) ||
         !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.z)) ||

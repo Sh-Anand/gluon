@@ -48,6 +48,11 @@ public:
         return gpu_addr + addr;
     }
 
+    // set a 32-bit variable of the image, before the image is copied to the device
+    void write32(const std::string& symbol_name, uint32_t value) {
+        memcpy(binary_data + (elf_symbol_map.at(symbol_name) - elf_min_vaddr), &value, sizeof(value));
+    }
+
     // rename regs a warp allocates: GPRs written by everything reachable from _start and the kernel
     uint8_t getKernelRegs(const std::string& kernel_name) {
         auto cached = kernel_regs.find(kernel_name);

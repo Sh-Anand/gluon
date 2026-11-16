@@ -76,6 +76,10 @@ void radKernelLaunch(const char *kernel_name,
         void  *kernel_bin_addr;
         radMalloc(&kernel_bin_addr, loader->size);
         loader->applyRelocations((uint32_t)(uintptr_t)(kernel_bin_addr));
+        // the one stack region, which _start carves by hardware slot
+        void *stacks;
+        radMalloc(&stacks, STACK_REGION_SIZE + STACK_REGION_ALIGN);
+        loader->write32("rad_stack_region", ((uint32_t)(uintptr_t)(stacks) + STACK_REGION_ALIGN - 1) & ~(STACK_REGION_ALIGN - 1));
         radMemcpyAsync(kernel_bin_addr, loader->binary_data, loader->size, radMemcpyDir_H2D, stream);
     }
 
