@@ -35,7 +35,8 @@ per_bank_latency = 1
 # global memory: L0 per core for instructions, L1 per SM (the first level for data), L2 shared by
 # all SMs and backed by DRAM. A miss costs
 # miss_latency on top of the next level's access (the L2's includes the DRAM round trip) and
-# holds the link to the next level for bus_cycles
+# holds the link to the next level for bus_cycles. The L1 is write-through: each store is also
+# passed on to the L2, holding the L1's link for bus_cycles; the L2 writes back when it evicts
 [glug.core.gmem]
 line = 128 # bytes, the same at every level
 l0 = { sets = 64,  ways = 1, mshrs = 4, hit_latency = 0, miss_latency = 9,  bus_cycles = 0 }
