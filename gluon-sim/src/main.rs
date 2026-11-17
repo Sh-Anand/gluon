@@ -93,10 +93,16 @@ async fn enqueue_command(
             }
         }
         let command = Command::from_bytes(buffer);
-        {
+        // wait for room: a command submitted to a full intake queue would be overwritten by the next
+        loop {
             let mut top_guard = top.lock().await;
-            top_guard.submit_command(command);
-            top_guard.tick().unwrap();
+            if !top_guard.busy() {
+                top_guard.submit_command(command);
+                top_guard.tick().unwrap();
+                break;
+            }
+            drop(top_guard);
+            tokio::task::yield_now().await;
         }
         tokio::task::yield_now().await;
     }
