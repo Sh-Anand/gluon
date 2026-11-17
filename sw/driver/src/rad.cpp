@@ -85,6 +85,15 @@ void radKernelLaunch(const char *kernel_name,
         // before any launch on any stream
         TableWriteReq start{stream, 0, radTableField_PC, loader->getSymbolAddress("_start")};
         (void)rpc_call(OP_TABLE_WRITE, &start, sizeof(start), nullptr);
+        // the launch queue's ring
+        void *queue;
+        radMalloc(&queue, LAUNCH_QUEUE_SLOTS * LAUNCH_ENTRY_BYTES + LAUNCH_QUEUE_ALIGN);
+        start.field = radTableField_QUEUE_BASE;
+        start.value = ((uint32_t)(uintptr_t)(queue) + LAUNCH_QUEUE_ALIGN - 1) & ~(LAUNCH_QUEUE_ALIGN - 1);
+        (void)rpc_call(OP_TABLE_WRITE, &start, sizeof(start), nullptr);
+        start.field = radTableField_QUEUE_SLOTS;
+        start.value = LAUNCH_QUEUE_SLOTS;
+        (void)rpc_call(OP_TABLE_WRITE, &start, sizeof(start), nullptr);
         for (const std::string& kernel : loader->kernels) {
             TableWriteReq write{stream, loader->getKernelId(kernel), radTableField_PC, loader->getSymbolAddress(kernel)};
             (void)rpc_call(OP_TABLE_WRITE, &write, sizeof(write), nullptr);

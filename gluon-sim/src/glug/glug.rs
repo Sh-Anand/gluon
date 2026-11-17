@@ -170,7 +170,7 @@ impl Clocked for GLUG {
         let now = self.cycles.total();
         self.engines
             .iter_mut()
-            .try_for_each(|engine| engine.launch(&mut self.sms, &self.kernels, now))?;
+            .try_for_each(|engine| engine.launch(&mut self.sms, &self.kernels, now, &mut self.dram, &mut self.caches))?;
 
         // Tick SMs
         let cores_busy = self.sms.iter().any(SM::busy);
@@ -249,7 +249,12 @@ impl Clocked for GLUG {
         }
 
         // Apply kernel table writes
-        for (id, field, value) in self.engines.iter().filter_map(|engine| engine.table_write()) {
+        let writes: Vec<_> = self.engines.iter().filter_map(|engine| engine.table_write()).collect();
+        for (id, field, value) in writes {
+            if field >= KernelEntry::FIELDS {
+                self.engines.iter_mut().for_each(|engine| engine.setting(field, value));
+                continue;
+            }
             self.kernels[id as usize].set(field, value);
             info!(self.logger, "Kernel table[{}] = {:?}", id, self.kernels[id as usize]);
         }

@@ -6,7 +6,9 @@ use crate::glug::engines::{
     kernel_engine::{KernelEngine, KernelEngineConfig},
     mem_engine::{MemEngine, MemEngineConfig},
 };
+use cyclotron::muon::cache::Cache;
 use cyclotron::muon::sm::SM;
+use cyclotron::sim::flat_mem::FlatMemory;
 use cyclotron::sim::log::Logger;
 use std::sync::Arc;
 use serde::Deserialize;
@@ -25,9 +27,18 @@ pub trait Engine: Clocked + Send {
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
     // retire finished CTAs and launch new ones onto SMs, in engine order
-    fn launch(&mut self, _sms: &mut [SM], _kernels: &[KernelEntry], _now: u64) -> Result<(), SimErr> {
+    fn launch(
+        &mut self,
+        _sms: &mut [SM],
+        _kernels: &[KernelEntry],
+        _now: u64,
+        _dram: &mut FlatMemory,
+        _caches: &mut [Cache],
+    ) -> Result<(), SimErr> {
         Ok(())
     }
+    // a write to kernel table entry 0 that is not one of an entry's fields: a setting, (field, value)
+    fn setting(&mut self, _field: u8, _value: u32) {}
     // a write to the kernel table: (entry, field, value)
     fn table_write(&self) -> Option<(u8, u8, u32)> {
         None

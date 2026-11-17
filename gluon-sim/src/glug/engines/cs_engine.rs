@@ -18,6 +18,8 @@ pub struct KernelEntry {
 }
 
 impl KernelEntry {
+    pub const FIELDS: u8 = 2; // field numbers from here on are settings, written through entry 0
+
     pub fn set(&mut self, field: u8, value: u32) {
         match field {
             0 => self.pc = value,

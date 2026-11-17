@@ -30,3 +30,18 @@ extern "C" __kernel__ void recurse(int *out, unsigned *blk, int depth) {
         rad_launch(recurse, 1, 1, 1, 1, 1, 1, 0, next);
     }
 }
+
+extern "C" __kernel__ void leaf(int *slot, int value) {
+    *slot = value;
+}
+
+// every thread launches a `leaf` of its own: more launches at once than the command processor
+// has slots, so most go through the launch queue
+extern "C" __kernel__ void fanout(int *out, unsigned *blk, int base) {
+    unsigned t = rad_thread_idx_x();
+    unsigned *params = blk + 3 * t;
+    params[0] = 8;
+    params[1] = (unsigned)(out + t);
+    params[2] = base + t;
+    rad_launch(leaf, 1, 1, 1, 1, 1, 1, 0, params);
+}

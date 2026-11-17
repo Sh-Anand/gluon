@@ -58,6 +58,21 @@ int main() {
     radStreamSynchronize(s2);
     w += wrong(out1, 32, 2000) + wrong(out2, 32, 3000);
 
+    // 32 threads launch at once, 48 times over.  The command processor has slots for 8 at a time, so 24
+    // of each 32 go through the launch queue: 1,152 in all, past its 1,024 slots
+    void *fout, *fblk;
+    radMalloc(&fout, 32 * sizeof(int));
+    radMalloc(&fblk, 32 * 12);
+    for (int i = 0; i < 48; i++) {
+        radParamBuf fparams;
+        fparams.push(fout);
+        fparams.push(fblk);
+        fparams.push(4000 + 100 * i);
+        radKernelLaunch("fanout", {1, 1, 1}, {32, 1, 1}, 0, &fparams);
+        radStreamSynchronize();
+        w += wrong(fout, 32, 4000 + 100 * i);
+    }
+
     printf("%s (%u wrong)\n", w ? "FAIL" : "PASS", w);
     return 0;
 }

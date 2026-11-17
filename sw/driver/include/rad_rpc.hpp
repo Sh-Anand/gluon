@@ -24,6 +24,9 @@ enum Op : uint32_t {
 enum radTableField : uint8_t {
     radTableField_PC,
     radTableField_REGS, // per thread
+    // entry 0 only: where the launch queue is, and its slots
+    radTableField_QUEUE_BASE,
+    radTableField_QUEUE_SLOTS,
 };
 
 struct MsgHeader {
