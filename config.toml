@@ -8,6 +8,7 @@ timeout_cycles = 0
 [glug]
 gluon_log_level = 2
 muon_log_level = 0
+kernel_table_size = 256 # entries; kernel ids are 8 bits
 
 # Muon core timing, shared by all SMs
 [glug.core]

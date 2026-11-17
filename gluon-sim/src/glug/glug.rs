@@ -18,7 +18,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct GLUGConfig {
     pub intake: IntakeConfig,
@@ -27,10 +27,29 @@ pub struct GLUGConfig {
     pub engine: EngineConfig,
     pub sms: Vec<SMConfig>,
     pub core: CoreConfig, // Muon core timing, shared by all SMs
+    pub kernel_table_size: usize, // entries; kernel ids are 8 bits
     pub host_pid: i32,
     pub driver_pid: i32,
     pub gluon_log_level: u64,
     pub muon_log_level: u64,
+}
+
+impl Default for GLUGConfig {
+    fn default() -> Self {
+        GLUGConfig {
+            intake: IntakeConfig::default(),
+            dispatch: DispatchConfig::default(),
+            stream: StreamConfig::default(),
+            engine: EngineConfig::default(),
+            sms: vec![],
+            core: CoreConfig::default(),
+            kernel_table_size: 256,
+            host_pid: 0,
+            driver_pid: 0,
+            gluon_log_level: 0,
+            muon_log_level: 0,
+        }
+    }
 }
 
 pub struct GLUG {
@@ -106,7 +125,7 @@ impl Configurable<GLUGConfig> for GLUG {
             engines,
             completion: Completion::new(&config.stream),
             sms,
-            kernels: vec![KernelEntry::default(); 256],
+            kernels: vec![KernelEntry::default(); config.kernel_table_size],
             cycles: Cycles::default(),
             sim_time: Duration::ZERO,
             core_time: Duration::ZERO,
