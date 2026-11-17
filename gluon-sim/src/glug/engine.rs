@@ -25,7 +25,7 @@ pub trait Engine: Clocked + Send {
     fn get_mem_req(&self) -> Option<&MemReq>;
     fn set_mem_resp(&mut self, data: Option<&Vec<u8>>);
     // retire finished CTAs and launch new ones onto SMs, in engine order
-    fn launch(&mut self, _sms: &mut [SM], _kernels: &[KernelEntry]) -> Result<(), SimErr> {
+    fn launch(&mut self, _sms: &mut [SM], _kernels: &[KernelEntry], _now: u64) -> Result<(), SimErr> {
         Ok(())
     }
     // a write to the kernel table: (entry, field, value)

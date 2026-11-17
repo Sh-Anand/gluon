@@ -10,7 +10,7 @@ use crate::glug::engine::EngineCommand;
 use crate::glug::engines::cs_engine::KernelEntry;
 use cyclotron::muon::sm::SM;
 use cyclotron::info;
-use cyclotron::muon::core::CtaId;
+use cyclotron::muon::core::{self, CtaId};
 use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
 use log::error;
@@ -44,18 +44,23 @@ pub struct KernelCommand {
 }
 
 impl KernelCommand {
-    // the entry's four words are laid out in sw/driver/include/core.h
-    pub fn from_engine_cmd(cmd: EngineCommand) -> Self {
-        let w: Vec<u32> = cmd.bytes()[..16].chunks(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+    // the entry's four words are laid out in sw/driver/include/core.h; a host command has the kernel
+    // id in them, a device launch in its instruction
+    fn from_entry(sid: u8, cmd_id: u64, w: [u32; 4], kernel: u8) -> Self {
         KernelCommand {
-            sid: cmd.sid(),
-            cmd_id: cmd.cmd_id(),
+            sid,
+            cmd_id,
             params: w[0],
             grid: (w[1] & 0xffff, w[1] >> 16, w[2] & 0xffff),
             block: ((w[3] & 0x3ff) + 1, (w[3] >> 10 & 0x3ff) + 1, (w[2] >> 24 & 0x3f) + 1),
-            kernel: (w[2] >> 16) as u8,
+            kernel,
             smem: (w[3] >> 20) * 16,
         }
+    }
+
+    pub fn from_engine_cmd(cmd: EngineCommand) -> Self {
+        let w: Vec<u32> = cmd.bytes()[..16].chunks(4).map(|b| u32::from_le_bytes(b.try_into().unwrap())).collect();
+        Self::from_entry(cmd.sid(), cmd.cmd_id(), [w[0], w[1], w[2], w[3]], (w[2] >> 16) as u8)
     }
 }
 
@@ -81,12 +86,14 @@ struct Stream {
     outstanding: u32, // its launches still placing, plus its CTAs running
     live: u32,        // its CTAs running
     err: Option<ExecErr>,
+    cmd_id: u64, // of its host command; the launches under it carry it too
     kernel_pc: u32,
     cycles: Cycles, // since the command arrived
 }
 
 pub struct KernelEngine {
     slots: Vec<Option<Launch>>,
+    pending: VecDeque<core::Launch>, // device launches on their way to a slot
     streams: Vec<Stream>, // by stream id
     inflight: Vec<Cta>,
     next_cta: CtaId,
@@ -102,6 +109,7 @@ impl Configurable<KernelEngineConfig> for KernelEngine {
     fn new(config: &KernelEngineConfig) -> Self {
         KernelEngine {
             slots: (0..config.launch_slots).map(|_| None).collect(),
+            pending: VecDeque::new(),
             streams: vec![],
             inflight: vec![],
             next_cta: 0,
@@ -130,6 +138,14 @@ impl KernelEngine {
             let result = s.err.take().map_or(Ok(()), Err);
             self.completions.push_back(Event::from_kernel_err(sid, result));
         }
+    }
+
+    // start placing `cmd`'s CTAs, from a free slot
+    fn fill(&mut self, cmd: KernelCommand) {
+        info!(self.logger, "Kernel engine: {:?}", cmd);
+        let (gx, gy, gz) = cmd.grid;
+        let launch = Launch { cmd, tb_ctr: 0, total_tb: gx * gy * gz, blocked_at: None };
+        *self.slots.iter_mut().find(|slot| slot.is_none()).expect("no free launch slot") = Some(launch);
     }
 
     // free retired CTAs; an error on a core kills everything its CTAs' streams have
@@ -202,11 +218,10 @@ impl Engine for KernelEngine {
     // the launch goes straight to a free slot, which idle() saw before the command was handed over
     fn set_cmd(&mut self, cmd: EngineCommand) {
         let cmd = KernelCommand::from_engine_cmd(cmd);
-        info!(self.logger, "Kernel engine: {:?}", cmd);
-        let (gx, gy, gz) = cmd.grid;
-        let launch = Launch { cmd, tb_ctr: 0, total_tb: gx * gy * gz, blocked_at: None };
-        *self.slots.iter_mut().find(|slot| slot.is_none()).expect("no free launch slot") = Some(launch);
-        self.stream(cmd.sid).outstanding += 1;
+        let stream = self.stream(cmd.sid);
+        stream.outstanding += 1;
+        stream.cmd_id = cmd.cmd_id;
+        self.fill(cmd);
     }
 
     fn busy(&self) -> bool {
@@ -239,8 +254,20 @@ impl Engine for KernelEngine {
         panic!("Kernel engine: cannot set mem resp");
     }
 
-    fn launch(&mut self, sms: &mut [SM], kernels: &[KernelEntry]) -> Result<(), SimErr> {
+    fn launch(&mut self, sms: &mut [SM], kernels: &[KernelEntry], now: u64) -> Result<(), SimErr> {
+        // take what the cores launched.  Each counts on its stream at once, before anything retires,
+        // so a parent's exit cannot complete the stream ahead of its children
+        for launch in sms.iter_mut().flat_map(|sm| &mut sm.cores).flat_map(|core| core.launches.drain(..)) {
+            self.stream(launch.stream).outstanding += 1;
+            self.pending.push_back(launch);
+        }
         self.retire(sms);
+        // a launch that has reached the command processor takes a free slot
+        while self.idle() && self.pending.front().is_some_and(|launch| launch.ready <= now) {
+            let launch = self.pending.pop_front().unwrap();
+            let cmd_id = self.stream(launch.stream).cmd_id;
+            self.fill(KernelCommand::from_entry(launch.stream, cmd_id, launch.words, launch.kernel));
+        }
         let frees = sms.iter().map(|sm| sm.frees).sum();
         let n = sms.len();
         let start = kernels[0].pc; // entry 0 is _start

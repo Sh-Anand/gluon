@@ -167,15 +167,15 @@ impl Clocked for GLUG {
         });
 
         // Engines retire and launch CTAs on SMs, in engine order
+        let now = self.cycles.total();
         self.engines
             .iter_mut()
-            .try_for_each(|engine| engine.launch(&mut self.sms, &self.kernels))?;
+            .try_for_each(|engine| engine.launch(&mut self.sms, &self.kernels, now))?;
 
         // Tick SMs
         let cores_busy = self.sms.iter().any(SM::busy);
         let busy = cores_busy || self.engines.iter().any(|engine| engine.busy());
         let core_start = start.map(|_| Instant::now());
-        let now = self.cycles.total();
         self.sms.iter_mut().for_each(|sm| sm.tick(now, &mut self.dram, &mut self.caches));
         let core_time = core_start.map(|t| t.elapsed());
 
