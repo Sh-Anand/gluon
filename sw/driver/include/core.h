@@ -27,6 +27,11 @@ typedef uint8_t radStream;
 #define CMD_WAIT_EVENT_CMD_ID_OFFSET CMD_WAIT_EVENT_STREAM_ID_OFFSET + 1
 #define CMD_WAIT_HEADER_SIZE CMD_WAIT_EVENT_CMD_ID_OFFSET + 8
 
+#define CMD_CSR_ID_OFFSET CMD_CMD_TYPE_OFFSET + 1
+#define CMD_CSR_FIELD_OFFSET CMD_CSR_ID_OFFSET + 1
+#define CMD_CSR_VALUE_OFFSET CMD_CSR_FIELD_OFFSET + 1
+#define CMD_CSR_HEADER_SIZE CMD_CSR_VALUE_OFFSET + 4
+
 #define CMD_HEADER_SIZE CMD_MEM_HEADER_SIZE // max
 
 enum radCmdType {
@@ -56,6 +61,8 @@ uint32_t GPUMalloc(uint32_t bytes);
 uint64_t CreateStream();
 
 uint64_t EventRecord(radStream_t stream);
+
+void TableWrite(TableWriteReq* req);
 
 void WaitEvent(WaitEventReq* req);
 

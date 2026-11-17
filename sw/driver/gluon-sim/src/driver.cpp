@@ -223,6 +223,10 @@ int main() {
             MemCpy((MemCpyReq*)req.data());
             if (!SendResp(cli, 0, nullptr, 0))
                 break;
+        } else if (h.op == OP_TABLE_WRITE) {
+            TableWrite((TableWriteReq*)req.data());
+            if (!SendResp(cli, 0, nullptr, 0))
+                break;
         } else if (h.op == OP_EVENT_RECORD) {
             uint64_t resp = EventRecord(*(radStream_t*)req.data());
             if (!SendResp(cli, 0, &resp, sizeof(resp)))

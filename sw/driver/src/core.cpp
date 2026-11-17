@@ -148,6 +148,23 @@ void MemCpy(MemCpyReq* req) {
     host_ptrs[streams[req->stream]].push_back(nullptr);
 }
 
+// set one field of a kernel table entry
+void TableWrite(TableWriteReq* req) {
+    {
+        std::lock_guard<std::mutex> lock(core_mu);
+        hw_streams[streams[req->stream]].tail_cmd_id++;
+    }
+
+    std::vector<uint8_t> header_bytes(CMD_CSR_HEADER_SIZE, 0);
+    header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
+    header_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_CSR;
+    header_bytes[CMD_CSR_ID_OFFSET] = req->id;
+    header_bytes[CMD_CSR_FIELD_OFFSET] = req->field;
+    write_u32_le(header_bytes.data() + CMD_CSR_VALUE_OFFSET, req->value);
+    (void)driver::SubmitCommand(header_bytes, nullptr, 0);
+    host_ptrs[streams[req->stream]].push_back(nullptr);
+}
+
 uint32_t GPUMalloc(uint32_t bytes) {
     std::lock_guard<std::mutex> lock(core_mu);
     auto device_addr = allocateDeviceMemory(bytes);

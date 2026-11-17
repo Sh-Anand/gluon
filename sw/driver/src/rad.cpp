@@ -81,6 +81,16 @@ void radKernelLaunch(const char *kernel_name,
         radMalloc(&stacks, STACK_REGION_SIZE + STACK_REGION_ALIGN);
         loader->write32("rad_stack_region", ((uint32_t)(uintptr_t)(stacks) + STACK_REGION_ALIGN - 1) & ~(STACK_REGION_ALIGN - 1));
         radMemcpyAsync(kernel_bin_addr, loader->binary_data, loader->size, radMemcpyDir_H2D, stream);
+        // program the device's kernel table, then wait, so the image and the table are in place
+        // before any launch on any stream
+        for (const std::string& kernel : loader->kernels) {
+            TableWriteReq write{stream, loader->getKernelId(kernel), radTableField_PC, loader->getSymbolAddress(kernel)};
+            (void)rpc_call(OP_TABLE_WRITE, &write, sizeof(write), nullptr);
+            write.field = radTableField_REGS;
+            write.value = loader->getKernelRegs(kernel);
+            (void)rpc_call(OP_TABLE_WRITE, &write, sizeof(write), nullptr);
+        }
+        radStreamSynchronize(stream);
     }
 
     uint32_t params_len = params ? static_cast<uint32_t>(params->size()) : 0;

@@ -17,6 +17,13 @@ enum Op : uint32_t {
     OP_WAIT_EVENT = 6,
     OP_SYNC = 7,
     OP_SET_HOST_PID = 8,
+    OP_TABLE_WRITE = 9,
+};
+
+// the fields of a kernel table entry
+enum radTableField : uint8_t {
+    radTableField_PC,
+    radTableField_REGS, // per thread
 };
 
 struct MsgHeader {
@@ -51,6 +58,13 @@ struct MemCpyReq {
 struct WaitEventReq {
     radStream_t stream;
     radEvent_t event;
+};
+
+struct TableWriteReq {
+    radStream_t stream;
+    uint8_t id; // kernel table entry
+    uint8_t field;
+    uint32_t value;
 };
 
 struct SyncReq {
