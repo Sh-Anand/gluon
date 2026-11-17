@@ -5,7 +5,7 @@
 extern __shared int smem[];
 
 // each thread writes its slot, later warps later; after the barrier it reads the mirrored slot
-extern "C" void barrier_kernel(int *out) {
+extern "C" __kernel__ void barrier_kernel(int *out) {
     unsigned tid = rad_thread_idx_x(), bx = rad_block_idx_x();
 
     volatile __shared int *s = smem;

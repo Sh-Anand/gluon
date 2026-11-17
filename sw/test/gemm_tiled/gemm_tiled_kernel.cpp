@@ -6,7 +6,7 @@ extern __shared int smem[];
 
 // one thread per element of C = A * B, staging TILE x TILE tiles of A and B in smem;
 // A is MxK, B is KxN, all row-major, K a multiple of TILE
-extern "C" void gemm_tiled_kernel(const int *A, const int *B, int *C, int N, int K) {
+extern "C" __kernel__ void gemm_tiled_kernel(const int *A, const int *B, int *C, int N, int K) {
     unsigned tx = rad_thread_idx_x(), ty = rad_thread_idx_y(), bx = rad_block_idx_x(), by = rad_block_idx_y();
 
     __shared int *As = smem, *Bs = smem + TILE * TILE;

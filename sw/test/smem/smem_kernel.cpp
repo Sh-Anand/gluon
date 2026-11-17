@@ -3,7 +3,7 @@
 
 extern __shared int smem[];
 
-extern "C" void smem_kernel(int a, int b, int c, int *out) {
+extern "C" __kernel__ void smem_kernel(int a, int b, int c, int *out) {
     unsigned bx = rad_block_idx_x();
 
     // volatile so the reads below actually come from smem
