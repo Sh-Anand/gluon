@@ -2,6 +2,7 @@ use crate::common::base::{Clocked, Command, Configurable, Cycles, DMADir, Event,
 use crate::glug::completion::Completion;
 use crate::glug::dispatch::{Dispatch, DispatchConfig};
 use crate::glug::engine::{Engine, EngineConfig};
+use crate::glug::engines::cs_engine::KernelEntry;
 use crate::glug::intake::{Intake, IntakeConfig};
 use crate::glug::stream::{Stream, StreamConfig};
 use crate::sm::{CoreConfig, SMConfig};
@@ -44,6 +45,7 @@ pub struct GLUG {
     completion: Completion,
 
     sms: Vec<SM>,
+    kernels: Vec<KernelEntry>, // the kernel table, by kernel id
 
     // whole-run totals over busy ticks
     cycles: Cycles,
@@ -104,6 +106,7 @@ impl Configurable<GLUGConfig> for GLUG {
             engines,
             completion: Completion::new(&config.stream),
             sms,
+            kernels: vec![KernelEntry::default(); 256],
             cycles: Cycles::default(),
             sim_time: Duration::ZERO,
             core_time: Duration::ZERO,
@@ -224,6 +227,12 @@ impl Clocked for GLUG {
             };
 
             engine.done_dma_req();
+        }
+
+        // Apply kernel table writes
+        for (id, field, value) in self.engines.iter().filter_map(|engine| engine.table_write()) {
+            self.kernels[id as usize].set(field, value);
+            info!(self.logger, "Kernel table[{}] = {:?}", id, self.kernels[id as usize]);
         }
 
         // Tick engines

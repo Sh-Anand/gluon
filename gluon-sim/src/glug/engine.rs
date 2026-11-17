@@ -24,6 +24,10 @@ pub trait Engine: Clocked + Send {
     fn launch(&mut self, _sms: &mut [SM]) -> Result<(), SimErr> {
         Ok(())
     }
+    // a write to the kernel table: (entry, field, value)
+    fn table_write(&self) -> Option<(u8, u8, u32)> {
+        None
+    }
     fn get_completion(&self) -> Option<Event>;
 }
 
