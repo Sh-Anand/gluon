@@ -25,6 +25,7 @@ fp_divsqrt = { lanes = 4,  latency = 16 }
 fp_exp     = { lanes = 8,  latency = 9 }
 sfu        = { lanes = 32, latency = 3 }
 lsu        = { lanes = 32, latency = 10 }
+launch     = { lanes = 32, latency = 30 } # a grid launch reaches the command processor; the warp does not wait
 
 # shared memory: an SM serves one request at a time, holding its banks for per_bank_latency
 # per distinct word in the request's fullest bank; a load's rd is ready startup_latency after
