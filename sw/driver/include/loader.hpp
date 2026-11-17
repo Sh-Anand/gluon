@@ -3,6 +3,7 @@
 
 #include <elfio/elfio.hpp>
 
+#include <algorithm>
 #include <bitset>
 #include <cassert>
 #include <cstddef>
@@ -29,6 +30,7 @@ public:
     std::unordered_map<uint32_t, std::bitset<128>> fn_regs;      // func -> GPRs it writes (.rad.regs)
     std::unordered_map<uint32_t, std::vector<uint32_t>> fn_refs; // func -> symbols it references (.rad.refs)
     std::unordered_map<std::string, uint8_t> kernel_regs;
+    std::vector<std::string> kernels; // the __kernel__ functions by address; a kernel's id is its position + 1
 
     ELFLoader() : elf_min_vaddr(0), binary_data(nullptr), size(0) {}
 
@@ -46,6 +48,14 @@ public:
         assert(it != elf_symbol_map.end() && "symbol not found");
         uint32_t addr = it->second - elf_min_vaddr;
         return gpu_addr + addr;
+    }
+
+    // id of a __kernel__ function, as the device's kernel table numbers it; 0 if it is not one
+    uint8_t getKernelId(const std::string& kernel_name) {
+        for (size_t i = 0; i < kernels.size(); ++i)
+            if (kernels[i] == kernel_name)
+                return i + 1;
+        return 0;
     }
 
     // set a 32-bit variable of the image, before the image is copied to the device
@@ -171,7 +181,8 @@ public:
             }
         }
 
-        // build symbol cache
+        // build symbol cache, and list the kernels: the functions in the section __kernel__ puts them in
+        const section* kernel_sec = reader.sections["rad_kernels"];
         for (unsigned i = 0; i < reader.sections.size(); ++i) {
             if (reader.sections[i]->get_type() == SHT_SYMTAB) {
                 symbol_section_accessor symbols(reader, reader.sections[i]);
@@ -183,10 +194,14 @@ public:
                     Elf_Half section;
                     symbols.get_symbol(j, name, value, size, bind, type, section, other);
                     elf_symbol_map[name] = value;
+                    if (kernel_sec && type == STT_FUNC && section == kernel_sec->get_index())
+                        kernels.push_back(name);
                 }
                 break;
             }
         }
+        std::sort(kernels.begin(), kernels.end(),
+                  [&](const std::string& a, const std::string& b) { return elf_symbol_map[a] < elf_symbol_map[b]; });
     }
 };
 
