@@ -11,7 +11,7 @@ static std::uint64_t g_device_mem_used = GPU_MEM_START_ADDR;
 
 std::optional<uint32_t> allocateDeviceMemory(size_t bytes) {
     static const std::uint64_t capacity = static_cast<std::uint64_t>(GPU_DRAM_SIZE);
-    size_t aligned_bytes = bytes + (bytes % sizeof(uint32_t));
+    size_t aligned_bytes = (bytes + sizeof(uint32_t) - 1) & ~(sizeof(uint32_t) - 1);
     if (g_device_mem_used > capacity)
         return std::nullopt;
     if (bytes > capacity - g_device_mem_used)
