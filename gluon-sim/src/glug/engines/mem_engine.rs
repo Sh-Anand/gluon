@@ -192,7 +192,7 @@ impl Clocked for MemEngine {
                     src_addr: copy_cmd.src,
                     target_addr: copy_cmd.dst,
                     sz: copy_cmd.len,
-                    host_runtime: true,
+                    host_runtime: copy_cmd.flags & 2 == 0, // else the host side is the driver's memory
                     done: false,
                 });
                 self.state = MemEngineState::C1;

@@ -83,6 +83,8 @@ void radKernelLaunch(const char *kernel_name,
         radMemcpyAsync(kernel_bin_addr, loader->binary_data, loader->size, radMemcpyDir_H2D, stream);
         // program the device's kernel table, then wait, so the image and the table are in place
         // before any launch on any stream
+        TableWriteReq start{stream, 0, radTableField_PC, loader->getSymbolAddress("_start")};
+        (void)rpc_call(OP_TABLE_WRITE, &start, sizeof(start), nullptr);
         for (const std::string& kernel : loader->kernels) {
             TableWriteReq write{stream, loader->getKernelId(kernel), radTableField_PC, loader->getSymbolAddress(kernel)};
             (void)rpc_call(OP_TABLE_WRITE, &write, sizeof(write), nullptr);
@@ -99,10 +101,8 @@ void radKernelLaunch(const char *kernel_name,
     req.grid_dim = grid_dim;
     req.block_dim = block_dim;
     req.smem_bytes = smem_bytes;
-    req.regs = loader->getKernelRegs(kernel_name);
+    req.kernel_id = loader->getKernelId(kernel_name);
     req.params_size = params_len;
-    req.start_pc = loader->getSymbolAddress("_start");
-    req.kernel_pc = loader->getSymbolAddress(kernel_name);
 
     std::vector<uint8_t> payload(sizeof(req) + params_len);
     std::memcpy(payload.data(), &req, sizeof(req));

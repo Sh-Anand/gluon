@@ -20,7 +20,7 @@ enum Op : uint32_t {
     OP_TABLE_WRITE = 9,
 };
 
-// the fields of a kernel table entry
+// the fields of a kernel table entry.  Entry 0 is not a kernel: its PC is _start, where every warp begins.
 enum radTableField : uint8_t {
     radTableField_PC,
     radTableField_REGS, // per thread
@@ -41,10 +41,8 @@ struct KernelLaunchReq {
     radDim3 grid_dim;
     radDim3 block_dim;
     uint32_t smem_bytes;
-    uint8_t regs;
+    uint8_t kernel_id;
     uint32_t params_size;
-    uint32_t start_pc;
-    uint32_t kernel_pc;
 };
 
 struct MemCpyReq {

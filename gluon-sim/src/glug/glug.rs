@@ -169,7 +169,7 @@ impl Clocked for GLUG {
         // Engines retire and launch CTAs on SMs, in engine order
         self.engines
             .iter_mut()
-            .try_for_each(|engine| engine.launch(&mut self.sms))?;
+            .try_for_each(|engine| engine.launch(&mut self.sms, &self.kernels))?;
 
         // Tick SMs
         let cores_busy = self.sms.iter().any(SM::busy);

@@ -31,96 +31,43 @@ void write_u64_le(std::uint8_t* dst, std::uint64_t value) {
     }
 }
 
-struct BufferWriter {
-    std::uint8_t* cursor;
-    std::uint8_t* end;
-
-    bool write_u32(std::uint32_t value) {
-        if (!remaining(4))
-            return false;
-        write_u32_le(cursor, value);
-        cursor += 4;
-        return true;
-    }
-
-    bool write_u8(std::uint8_t value) {
-        if (!remaining(1))
-            return false;
-        *cursor++ = value;
-        return true;
-    }
-
-    bool write_block(const void* data, std::size_t size) {
-        if (size == 0)
-            return true;
-        if (!remaining(size))
-            return false;
-        std::memcpy(cursor, data, size);
-        cursor += size;
-        return true;
-    }
-
-    bool write_zero(std::size_t size) {
-        if (size == 0)
-            return true;
-        if (!remaining(size))
-            return false;
-        std::memset(cursor, 0, size);
-        cursor += size;
-        return true;
-    }
-
-    bool finished() const { return cursor == end; }
-
-private:
-    bool remaining(std::size_t size) const { return cursor + size <= end; }
-};
-
 void KernelLaunch(KernelLaunchReq* req, const uint8_t* params_data) {
-    size_t payload_size = KERNEL_HEADER_MEM_END + req->params_size;
-    auto kernel_payload_addr_opt = allocateDeviceMemory(payload_size);
-    if (!kernel_payload_addr_opt)
-        throw std::runtime_error("Failed to allocate device memory for kernel payload");
-    uint32_t kernel_payload_addr = *kernel_payload_addr_opt;
-
-    std::unique_ptr<std::uint8_t[]> payload(new (std::nothrow) std::uint8_t[payload_size]);
-    if (!payload)
-        return;
-
-    BufferWriter writer{payload.get(), payload.get() + payload_size};
-    if (!writer.write_u32(req->start_pc) ||
-        !writer.write_u32(req->kernel_pc) ||
-        !writer.write_u32(req->params_size) ||
-        !writer.write_zero(8) || // stack and tls base: unused, _start takes both from its hardware slot
-        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.x)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.y)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req->grid_dim.z)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.x)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.y)) ||
-        !writer.write_u32(static_cast<std::uint32_t>(req->block_dim.z)) ||
-        !writer.write_u32(KERNEL_PRINTF_HOST_ADDR) ||
-        !writer.write_u8(req->regs) ||
-        !writer.write_u32(req->smem_bytes) ||
-        !writer.write_u8(KERNEL_FLAGS) ||
-        !writer.write_zero(KERNEL_HEADER_MEM_PADDING) ||
-        !writer.write_block(params_data, req->params_size) ||
-        !writer.finished()) {
-        return;
-    }
+    // the params block: the params' size, then the params
+    size_t block_size = PARAMS_START + req->params_size;
+    auto block_addr_opt = allocateDeviceMemory(block_size);
+    if (!block_addr_opt)
+        throw std::runtime_error("Failed to allocate device memory for kernel params");
+    std::uint8_t* block = new std::uint8_t[block_size];
+    write_u32_le(block + PARAMS_SIZE, req->params_size);
+    std::memcpy(block + PARAMS_START, params_data, req->params_size);
 
     {
         std::lock_guard<std::mutex> lock(core_mu);
-        hw_streams[streams[req->stream]].tail_cmd_id++;
+        hw_streams[streams[req->stream]].tail_cmd_id += 2;
     }
+
+    // copy the block in from this process, then launch
+    std::vector<uint8_t> copy_bytes(CMD_MEM_HEADER_SIZE, 0);
+    copy_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
+    copy_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_MEM;
+    copy_bytes[CMD_MEM_CMD_TYPE_OFFSET] = radMemCmdType_COPY;
+    write_u64_le(copy_bytes.data() + CMD_MEM_SRC_ADDR_OFFSET, (uint64_t)(uintptr_t)(block));
+    write_u64_le(copy_bytes.data() + CMD_MEM_DST_ADDR_OFFSET, *block_addr_opt);
+    write_u32_le(copy_bytes.data() + CMD_MEM_LEN_OFFSET, (uint32_t)(block_size));
+    copy_bytes[CMD_MEM_DIR_OFFSET] = radMemcpyDir_H2D | CMD_MEM_FROM_DRIVER;
+    (void)driver::SubmitCommand(copy_bytes, block, block_size);
+    host_ptrs[streams[req->stream]].push_back(block);
 
     std::vector<uint8_t> header_bytes(CMD_KERNEL_HEADER_SIZE, 0);
     header_bytes[CMD_STREAM_ID_OFFSET] = streams[req->stream];
     header_bytes[CMD_CMD_TYPE_OFFSET] = radCmdType_KERNEL;
-    write_u64_le(header_bytes.data() + CMD_KERNEL_HOST_ADDR_OFFSET, (uint64_t)(uintptr_t)(payload.get()));
-    write_u32_le(header_bytes.data() + CMD_KERNEL_SZ_OFFSET, (uint32_t)(payload_size));
-    write_u32_le(header_bytes.data() + CMD_KERNEL_GPU_ADDR_OFFSET, kernel_payload_addr);
-    (void)driver::SubmitCommand(header_bytes, payload.get(), payload_size);
-    host_ptrs[streams[req->stream]].push_back(payload.release());
+    std::uint8_t* entry = header_bytes.data() + CMD_KERNEL_ENTRY_OFFSET;
+    write_u32_le(entry, *block_addr_opt);
+    write_u32_le(entry + 4, req->grid_dim.x | req->grid_dim.y << 16);
+    write_u32_le(entry + 8, req->grid_dim.z | (uint32_t)req->kernel_id << 16 | (req->block_dim.z - 1) << 24);
+    write_u32_le(entry + 12, (req->block_dim.x - 1) | (req->block_dim.y - 1) << 10 | (req->smem_bytes + 15) / 16 << 20);
+    (void)driver::SubmitCommand(header_bytes, nullptr, 0);
+    host_ptrs[streams[req->stream]].push_back(nullptr);
 }
 
 // TODO: memcpy way way too hacky
