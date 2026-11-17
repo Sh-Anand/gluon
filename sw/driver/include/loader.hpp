@@ -202,6 +202,21 @@ public:
         }
         std::sort(kernels.begin(), kernels.end(),
                   [&](const std::string& a, const std::string& b) { return elf_symbol_map[a] < elf_symbol_map[b]; });
+
+        // give each vx_launch its kernel's id, in bits 16:9 of the instruction: .rad.launches lists
+        // {instruction, kernel} pairs of link-time addresses
+        if (const section* sec = reader.sections[".rad.launches"]) {
+            const uint32_t* pairs = (const uint32_t*)sec->get_data();
+            for (size_t i = 0; i + 2 <= sec->get_size() / 4; i += 2) {
+                uint8_t id = 0;
+                for (size_t k = 0; k < kernels.size(); ++k)
+                    if (elf_symbol_map[kernels[k]] == pairs[i + 1])
+                        id = k + 1;
+                uint8_t* inst = binary_data + (pairs[i] - elf_min_vaddr);
+                inst[1] = (inst[1] & 1) | (id << 1);
+                inst[2] = (inst[2] & ~1) | (id >> 7);
+            }
+        }
     }
 };
 
