@@ -76,12 +76,11 @@ csq_size = 4
 event_queue_size = 4
 
 [engine]
-num_kernel_engines = 4
 num_mem_engines = 1
 num_cs_engines = 1
 
 [kernel_engine]
-# kernel engine specific configuration placeholders
+launch_slots = 8 # launches that can be placing CTAs at once
 
 [mem_engine]
 # memory engine specific configuration placeholders

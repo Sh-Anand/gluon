@@ -14,6 +14,10 @@ use serde::Deserialize;
 pub trait Engine: Clocked + Send {
     fn set_cmd(&mut self, cmd: EngineCommand);
     fn busy(&self) -> bool;
+    // whether it can take a command now; an engine that serves several at once can while busy
+    fn idle(&self) -> bool {
+        !self.busy()
+    }
     fn cmd_type(&self) -> CmdType;
     fn set_logger(&mut self, logger: Arc<Logger>);
     fn get_dma_req(&self) -> Option<&DMAReq>;
@@ -34,7 +38,6 @@ pub trait Engine: Clocked + Send {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct EngineConfig {
-    pub num_kernel_engines: usize,
     pub num_mem_engines: usize,
     pub num_cs_engines: usize,
     pub kernel_engine_config: KernelEngineConfig,
@@ -45,7 +48,6 @@ pub struct EngineConfig {
 impl Default for EngineConfig {
     fn default() -> Self {
         EngineConfig {
-            num_kernel_engines: 1,
             num_mem_engines: 1,
             num_cs_engines: 1,
             kernel_engine_config: KernelEngineConfig::default(),
@@ -57,14 +59,12 @@ impl Default for EngineConfig {
 
 impl EngineConfig {
     pub fn num_engines(&self) -> usize {
-        self.num_kernel_engines + self.num_mem_engines + self.num_cs_engines
+        1 + self.num_mem_engines + self.num_cs_engines
     }
 
     pub fn generate_engines(&self, logger: Arc<Logger>) -> Vec<Box<dyn Engine>> {
-        let mut engines: Vec<Box<dyn Engine>> = repeat_with(|| {
-            Box::new(KernelEngine::new(&self.kernel_engine_config)) as Box<dyn Engine>
-        })
-        .take(self.num_kernel_engines)
+        let kernel_engine = Box::new(KernelEngine::new(&self.kernel_engine_config)) as Box<dyn Engine>;
+        let mut engines: Vec<Box<dyn Engine>> = std::iter::once(kernel_engine)
         .chain(
             repeat_with(|| Box::new(MemEngine::new(&self.mem_engine_config)) as Box<dyn Engine>)
                 .take(self.num_mem_engines),

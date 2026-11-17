@@ -267,7 +267,7 @@ impl Clocked for GLUG {
                 if let Some(engine_idx) = self.engines
                         .iter_mut()
                         .enumerate()
-                        .find(|(_, engine)| engine.cmd_type() == eq.engine_type && !engine.busy())
+                        .find(|(_, engine)| engine.cmd_type() == eq.engine_type && engine.idle())
                         .map(|(idx, _)| idx) && 
                    let Some(engine_cmd) = eq.q.pop() {
                         self.engines

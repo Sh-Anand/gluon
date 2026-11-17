@@ -16,22 +16,29 @@ use cyclotron::muon::warp::ExecErr;
 use cyclotron::sim::log::Logger;
 use log::error;
 use serde::Deserialize;
+use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+// the front end takes one command at a time: idle, copying its header in, reading the header
 pub enum KernelEngineState {
     S0,
     S1,
     S2,
-    S3,
-    S4,
-    S5,
 }
 
-#[derive(Default, Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
-pub struct KernelEngineConfig {}
+pub struct KernelEngineConfig {
+    pub launch_slots: usize, // launches that can be placing CTAs at once
+}
+
+impl Default for KernelEngineConfig {
+    fn default() -> Self {
+        KernelEngineConfig { launch_slots: 8 }
+    }
+}
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KernelCommand {
@@ -139,6 +146,26 @@ struct Cta {
     sm: usize,
     id: CtaId,
     smem: Range<usize>,
+    sid: u8,
+}
+
+// a launch whose CTAs are still being placed
+struct Launch {
+    cmd: KernelCommand,
+    payload: KernelPayload,
+    tb_ctr: u32,
+    total_tb: u32,
+    blocked_at: Option<usize>, // SM frees seen when placement last failed
+}
+
+// a stream's kernel command, which is done when nothing of it is outstanding
+#[derive(Default)]
+struct Stream {
+    outstanding: u32, // its launches still placing, plus its CTAs running
+    live: u32,        // its CTAs running
+    err: Option<ExecErr>,
+    kernel_pc: u32,
+    cycles: Cycles, // since the command arrived
 }
 
 pub struct KernelEngine {
@@ -147,69 +174,103 @@ pub struct KernelEngine {
     dma_req: Option<DMAReq>,
     mem_req: Option<MemReq>,
     mem_resp: Option<MemResp>,
-
-    kernel_payload: KernelPayload,
     state: KernelEngineState,
-    tb_ctr: u32,
-    total_tb: u32,
-    inflight: Vec<Cta>,
-    blocked_at: Option<usize>, // SM frees seen when placement last failed
-    retired_at: u64, // SM events seen when CTAs were last checked
-    cycles: Cycles, // since the command arrived
 
-    err: Option<Result<(), ExecErr>>,
+    slots: Vec<Option<Launch>>,
+    streams: Vec<Stream>, // by stream id
+    inflight: Vec<Cta>,
+    next_cta: CtaId,
+    retired_at: u64, // SM events seen when CTAs were last checked
+
+    completions: VecDeque<Event>,
+    done: Option<Event>, // the completion out this tick
 
     logger: Arc<Logger>,
 }
 
 impl Configurable<KernelEngineConfig> for KernelEngine {
-    fn new(_config: &KernelEngineConfig) -> Self {
+    fn new(config: &KernelEngineConfig) -> Self {
         KernelEngine {
             cmd: None,
             dma_req: None,
             mem_req: None,
             mem_resp: None,
-            kernel_payload: KernelPayload::default(),
             state: KernelEngineState::S0,
-            tb_ctr: 0,
-            total_tb: 0,
+            slots: (0..config.launch_slots).map(|_| None).collect(),
+            streams: vec![],
             inflight: vec![],
-            blocked_at: None,
+            next_cta: 0,
             retired_at: 0,
-            cycles: Cycles::default(),
-            err: None,
+            completions: VecDeque::new(),
+            done: None,
             logger: Arc::new(Logger::new(0)),
         }
     }
 }
 
 impl KernelEngine {
-    // free retired CTAs; an error on any core kills the whole kernel
+    fn stream(&mut self, sid: u8) -> &mut Stream {
+        if self.streams.len() <= sid as usize {
+            self.streams.resize_with(sid as usize + 1, Stream::default);
+        }
+        &mut self.streams[sid as usize]
+    }
+
+    // one thing fewer is outstanding on stream `sid`; with the last, its command completes
+    fn finish(&mut self, sid: u8) {
+        let s = self.stream(sid);
+        s.outstanding -= 1;
+        if s.outstanding == 0 {
+            println!("kernel pc 0x{:08x}: {}", s.kernel_pc, std::mem::take(&mut s.cycles));
+            let result = s.err.take().map_or(Ok(()), Err);
+            self.completions.push_back(Event::from_kernel_err(sid, result));
+        }
+    }
+
+    // free retired CTAs; an error on a core kills everything its CTAs' streams have
     fn retire(&mut self, sms: &mut [SM]) {
         let events = sms.iter().map(|sm| sm.events).sum();
         if self.retired_at == events {
             return;
         }
         self.retired_at = events;
-        let err = self.inflight.iter().find_map(|cta| sms[cta.sm].cta_err(cta.id));
-        if let Some(err) = err {
-            self.inflight.drain(..).for_each(|cta| sms[cta.sm].free_cta(cta.id, &cta.smem));
-            self.err = Some(Err(err));
-            self.state = KernelEngineState::S5;
-            return;
+        while let Some((sid, err)) =
+            self.inflight.iter().find_map(|cta| sms[cta.sm].cta_err(cta.id).map(|err| (cta.sid, err)))
+        {
+            self.stream(sid).err = Some(err);
+            let mut dropped = 0;
+            self.slots.iter_mut().filter(|slot| slot.as_ref().is_some_and(|l| l.cmd.sid == sid)).for_each(|slot| {
+                *slot = None;
+                dropped += 1;
+            });
+            self.inflight.retain(|cta| {
+                if cta.sid == sid {
+                    sms[cta.sm].free_cta(cta.id, &cta.smem);
+                    dropped += 1;
+                }
+                cta.sid != sid
+            });
+            self.stream(sid).live = 0;
+            (0..dropped).for_each(|_| self.finish(sid));
         }
+        let mut retired = vec![];
         self.inflight.retain(|cta| {
-            let retired = !sms[cta.sm].cta_live(cta.id);
-            if retired {
+            let live = sms[cta.sm].cta_live(cta.id);
+            if !live {
                 sms[cta.sm].free_cta(cta.id, &cta.smem);
+                retired.push(cta.sid);
             }
-            !retired
+            live
         });
+        for sid in retired {
+            self.stream(sid).live -= 1;
+            self.finish(sid);
+        }
     }
 
-    // spawn the next CTA on `sm` if its cores' free warp slots, regs and its smem hold it
-    fn place(&self, sm_idx: usize, sm: &mut SM) -> Option<Cta> {
-        let p = self.kernel_payload;
+    // spawn `launch`'s next CTA on `sm`, as CTA `id`, if its cores' free warp slots, regs and its smem hold it
+    fn place(launch: &Launch, id: CtaId, sm_idx: usize, sm: &mut SM, logger: &Logger) -> Option<Cta> {
+        let (p, cmd) = (launch.payload, launch.cmd);
         let regs = p.regs_per_thread as usize;
         // thread idxs grouped into warps, x fastest
         let (bx, by, bz) = p.block;
@@ -221,14 +282,13 @@ impl KernelEngine {
         }
         let smem = sm.alloc_smem(p.shmem_per_block as usize)?;
         let (gx, gy, _) = p.grid;
-        let block_idx = (self.tb_ctr % gx, self.tb_ctr / gx % gy, self.tb_ctr / (gx * gy));
-        let cmd = self.cmd.expect("Unreachable: Kernel command not set");
+        let block_idx = (launch.tb_ctr % gx, launch.tb_ctr / gx % gy, launch.tb_ctr / (gx * gy));
         for (&(core, w), threads) in slots.iter().zip(warps) {
             let slot = [(w, threads.to_vec())];
-            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slot, cmd.gpu_addr, smem.start as u32, cmd.cmd_id, regs);
+            sm.cores[core].spawn_n_warps(p.start_pc, block_idx, &slot, cmd.gpu_addr, smem.start as u32, cmd.cmd_id, id, regs);
         }
-        info!(self.logger, "Spawning block_idx {:?} on sm {} (core, warp) {:?}", block_idx, sm_idx, slots);
-        Some(Cta { sm: sm_idx, id: (cmd.cmd_id, block_idx), smem })
+        info!(logger, "Spawning block_idx {:?} on sm {} (core, warp) {:?}", block_idx, sm_idx, slots);
+        Some(Cta { sm: sm_idx, id, smem, sid: cmd.sid })
     }
 }
 
@@ -238,7 +298,15 @@ impl Engine for KernelEngine {
     }
 
     fn busy(&self) -> bool {
-        !matches!(self.state, KernelEngineState::S0)
+        self.cmd.is_some()
+            || self.streams.iter().any(|s| s.outstanding > 0)
+            || self.done.is_some()
+            || !self.completions.is_empty()
+    }
+
+    // the front end is free and there is a slot for the launch it would produce
+    fn idle(&self) -> bool {
+        self.cmd.is_none() && self.slots.iter().any(Option::is_none)
     }
 
     fn cmd_type(&self) -> crate::common::base::CmdType {
@@ -267,57 +335,59 @@ impl Engine for KernelEngine {
 
     fn launch(&mut self, sms: &mut [SM]) -> Result<(), SimErr> {
         self.retire(sms);
-        if !matches!(self.state, KernelEngineState::S3) {
-            return Ok(());
-        }
-        let regs = self.kernel_payload.regs_per_thread as usize;
-        // a warp that exceeds an empty core's regs can never launch
-        if sms.iter().all(|sm| sm.config.regs_per_core < regs) {
-            error!("kernel needs {} regs per warp, more than any core has", regs);
-            return Err(SimErr::EXECUTION);
-        }
-        // nothing was freed since the last failed placement, so it would fail again
         let frees = sms.iter().map(|sm| sm.frees).sum();
-        if self.blocked_at == Some(frees) {
-            return Ok(());
-        }
-        // place CTAs in order until the next one fits nowhere; CTA i tries SMs from i % num_sms on
-        while self.tb_ctr < self.total_tb {
-            let n = sms.len();
-            let first = self.tb_ctr as usize % n;
-            let Some(cta) = (0..n).map(|k| (first + k) % n).find_map(|idx| self.place(idx, &mut sms[idx])) else {
-                self.blocked_at = Some(frees);
-                break;
-            };
-            self.tb_ctr += 1;
-            self.inflight.push(cta);
+        let n = sms.len();
+        for i in 0..self.slots.len() {
+            let Some(mut launch) = self.slots[i].take() else { continue };
+            let regs = launch.payload.regs_per_thread as usize;
+            // a warp that exceeds an empty core's regs can never launch
+            if sms.iter().all(|sm| sm.config.regs_per_core < regs) {
+                error!("kernel needs {} regs per warp, more than any core has", regs);
+                return Err(SimErr::EXECUTION);
+            }
+            // place CTAs in order until the next one fits nowhere; CTA i tries SMs from i % num_sms on.
+            // If nothing was freed since placement last failed, it would fail again
+            while launch.tb_ctr < launch.total_tb && launch.blocked_at != Some(frees) {
+                let first = launch.tb_ctr as usize % n;
+                let placed = (0..n)
+                    .map(|k| (first + k) % n)
+                    .find_map(|idx| Self::place(&launch, self.next_cta, idx, &mut sms[idx], &self.logger));
+                let Some(cta) = placed else {
+                    launch.blocked_at = Some(frees);
+                    break;
+                };
+                launch.tb_ctr += 1;
+                self.next_cta += 1;
+                let stream = self.stream(cta.sid);
+                stream.outstanding += 1;
+                stream.live += 1;
+                self.inflight.push(cta);
+            }
+            if launch.tb_ctr < launch.total_tb {
+                self.slots[i] = Some(launch);
+            } else {
+                self.finish(launch.cmd.sid); // the launch itself: fully placed
+            }
         }
         Ok(())
     }
 
     fn get_completion(&self) -> Option<Event> {
-        self.err
-            .as_ref()
-            .map(|err| {
-                Event::from_kernel_err(
-                    self.cmd.expect("Command not set, no completion exists").sid,
-                    err.clone(),
-                )
-            })
+        self.done
     }
 }
 
 impl Clocked for KernelEngine {
     fn tick(&mut self) -> Result<(), SimErr> {
-        if Engine::busy(self) {
-            self.cycles.tick(!self.inflight.is_empty());
+        if let (Some(cmd), false) = (self.cmd, matches!(self.state, KernelEngineState::S0)) {
+            self.stream(cmd.sid).cycles.tick(false);
         }
+        self.streams.iter_mut().filter(|s| s.outstanding > 0).for_each(|s| s.cycles.tick(s.live > 0));
+        self.done = self.completions.pop_front();
         match &self.state {
             KernelEngineState::S0 => {
                 if let Some(cmd) = &self.cmd {
                     self.state = KernelEngineState::S1;
-                    self.tb_ctr = 0;
-                    self.blocked_at = None;
                      info!(
                         self.logger,
                         "Init kernel engine: id={} host=0x{:08x} size=0x{:08x} gpu=0x{:08x}",
@@ -352,16 +422,22 @@ impl Clocked for KernelEngine {
 
             KernelEngineState::S2 => {
                 if self.mem_req.is_some() {
-                    if self.mem_resp.is_some() {
+                    if let Some(resp) = self.mem_resp.take() {
                         self.mem_req = None;
-                        self.kernel_payload = KernelPayload::from_bytes(&self.mem_resp.as_ref().expect("Unreachable:Kernel mem resp not set").data.as_ref().expect("Unreachable:Kernel mem resp no data"));
+                        let payload = KernelPayload::from_bytes(&resp.data.expect("Unreachable:Kernel mem resp no data"));
                         info!(
                             self.logger,
-                            "Received kernel payload: {:?}", self.kernel_payload
+                            "Received kernel payload: {:?}", payload
                         );
-                        let (gx, gy, gz) = self.kernel_payload.grid;
-                        self.total_tb = gx * gy * gz;
-                        self.state = KernelEngineState::S3;
+                        // the launch goes straight to a free slot, which idle() saw before the command was taken
+                        let cmd = self.cmd.take().expect("Unreachable:Kernel command not set");
+                        let (gx, gy, gz) = payload.grid;
+                        let launch = Launch { cmd, payload, tb_ctr: 0, total_tb: gx * gy * gz, blocked_at: None };
+                        *self.slots.iter_mut().find(|slot| slot.is_none()).expect("no free launch slot") = Some(launch);
+                        let stream = self.stream(cmd.sid);
+                        stream.outstanding += 1;
+                        stream.kernel_pc = payload.kernel_pc;
+                        self.state = KernelEngineState::S0;
                     }
                 } else {
                     self.mem_req = Some(MemReq {
@@ -378,24 +454,6 @@ impl Clocked for KernelEngine {
                         "Queued mem {:?}", self.mem_req
                     );
                 }
-            }
-
-            KernelEngineState::S3 => {
-                if self.tb_ctr == self.total_tb && self.inflight.is_empty() {
-                    self.state = KernelEngineState::S4;
-                }
-            }
-
-            KernelEngineState::S4 => {
-                self.state = KernelEngineState::S5;
-                self.err = Some(Ok(()));
-            }
-
-            KernelEngineState::S5 => {
-                println!("kernel pc 0x{:08x}: {}", self.kernel_payload.kernel_pc, std::mem::take(&mut self.cycles));
-                self.state = KernelEngineState::S0;
-                self.cmd = None;
-                self.err = None;
             }
         };
 
