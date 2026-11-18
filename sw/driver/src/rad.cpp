@@ -80,6 +80,10 @@ void radKernelLaunch(const char *kernel_name,
         void *stacks;
         radMalloc(&stacks, STACK_REGION_SIZE + STACK_REGION_ALIGN);
         loader->write32("rad_stack_region", ((uint32_t)(uintptr_t)(stacks) + STACK_REGION_ALIGN - 1) & ~(STACK_REGION_ALIGN - 1));
+        // the params ring device launches take their params blocks from
+        void *ring;
+        radMalloc(&ring, PARAMS_RING_BYTES);
+        loader->write32("rad_params_ring", (uint32_t)(uintptr_t)(ring));
         radMemcpyAsync(kernel_bin_addr, loader->binary_data, loader->size, radMemcpyDir_H2D, stream);
         // program the device's kernel table, then wait, so the image and the table are in place
         // before any launch on any stream

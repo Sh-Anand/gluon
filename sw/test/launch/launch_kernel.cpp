@@ -14,7 +14,7 @@ extern "C" __kernel__ void parent(int *out, unsigned *blk, int base) {
         blk[0] = 8;
         blk[1] = (unsigned)out;
         blk[2] = base;
-        rad_launch(child, 4, 1, 1, 8, 1, 1, 0, blk);
+        rad_launch_at(child, 4, 1, 1, 8, 1, 1, 0, blk);
     }
 }
 
@@ -27,7 +27,7 @@ extern "C" __kernel__ void recurse(int *out, unsigned *blk, int depth) {
         next[1] = (unsigned)out;
         next[2] = (unsigned)next;
         next[3] = depth + 1;
-        rad_launch(recurse, 1, 1, 1, 1, 1, 1, 0, next);
+        rad_launch_at(recurse, 1, 1, 1, 1, 1, 1, 0, next);
     }
 }
 
@@ -43,5 +43,5 @@ extern "C" __kernel__ void fanout(int *out, unsigned *blk, int base) {
     params[0] = 8;
     params[1] = (unsigned)(out + t);
     params[2] = base + t;
-    rad_launch(leaf, 1, 1, 1, 1, 1, 1, 0, params);
+    rad_launch_at(leaf, 1, 1, 1, 1, 1, 1, 0, params);
 }
