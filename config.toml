@@ -14,7 +14,7 @@ kernel_table_size = 256 # entries; kernel ids are 8 bits
 [glug.core]
 ibuf_depth = 4       # decoded instructions per warp available for issue
 
-# functional units, all fully pipelined: a warp-instruction takes ceil(num_lanes / lanes)
+# functional units, fully pipelined but for mma: a warp-instruction takes ceil(num_lanes / lanes)
 # passes, and its rd is ready `latency` cycles after the last pass issues
 [glug.core.units]
 alu        = { lanes = 32, latency = 3 }
@@ -26,6 +26,9 @@ fp_exp     = { lanes = 8,  latency = 9 }
 sfu        = { lanes = 32, latency = 3 }
 lsu        = { lanes = 32, latency = 10 }
 launch     = { lanes = 32, latency = 30 } # a grid launch reaches the command processor; the warp does not wait
+# vx_mma, the warp matrix multiply: not pipelined, a core takes one every `interval` cycles.  2048 multiply-adds
+# in 16 cycles is 4 times fmadd at one a cycle (an RTX 5090's tensor cores are 2 times its fp32 lanes, an A100's 16)
+mma        = { lanes = 32, latency = 27, interval = 16 }
 
 # shared memory: an SM serves one request at a time, holding its banks for per_bank_latency
 # per distinct word in the request's fullest bank; a load's rd is ready startup_latency after
