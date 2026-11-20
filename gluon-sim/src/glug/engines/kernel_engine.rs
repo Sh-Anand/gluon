@@ -360,9 +360,9 @@ impl Engine for KernelEngine {
             // If nothing was freed since placement last failed, it would fail again
             while launch.tb_ctr < launch.total_tb && launch.blocked_at != Some(frees) {
                 let first = launch.tb_ctr as usize % n;
-                let placed = (0..n)
-                    .map(|k| (first + k) % n)
-                    .find_map(|idx| Self::place(&launch, self.next_cta, start, kernel, idx, &mut sms[idx], &self.logger));
+                let mut order: Vec<usize> = (0..n).map(|k| (first + k) % n).collect();
+                order.sort_by_key(|&idx| std::cmp::Reverse(sms[idx].free_slots(kernel.regs as usize).len())); // roomiest SM first; ties keep that order
+                let placed = order.into_iter().find_map(|idx| Self::place(&launch, self.next_cta, start, kernel, idx, &mut sms[idx], &self.logger));
                 let Some(cta) = placed else {
                     launch.blocked_at = Some(frees);
                     break;
