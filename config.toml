@@ -45,7 +45,7 @@ per_bank_latency = 1
 [glug.core.gmem]
 line = 128 # bytes, the same at every level
 l0 = { sets = 64,  ways = 1, mshrs = 4, hit_latency = 0, miss_latency = 9,  bus_cycles = 0 }
-l1 = { sets = 128, ways = 4, mshrs = 8, hit_latency = 12, miss_latency = 30, bus_cycles = 0 }
+l1 = { sets = 128, ways = 4, mshrs = 128, hit_latency = 12, miss_latency = 30, bus_cycles = 0 }
 l2 = { sets = 512, ways = 8, mshrs = 8, hit_latency = 15, miss_latency = 80, bus_cycles = 16 }
 
 [[glug.sms]]
